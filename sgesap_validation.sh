@@ -250,7 +250,7 @@ function _checkPKGname
 {
 	[[ -z $PKGname ]] && PKGname_tmp=empty || PKGname_tmp=$PKGname
 	#ls -1 $SGCONF | grep -E '^(db|ci|z)' | grep -q $PKGname_tmp
-	find $SGCONF  -type d 2>/dev/null | grep -q $PKGname_tmp 2>/dev/null
+	find $SGCONF  ! -type f 2>/dev/null | grep -q $PKGname_tmp 2>/dev/null
 	rc=$?
 	if [[ $rc -eq 0 ]]; then
 		_note "Package directory ($PKGname_tmp) found under $SGCONF"
@@ -1277,6 +1277,7 @@ function _check_auto_direct
 {
 	# check if a automount line is present and that proto=udp is not mentioned
 	# SID=$DbSystemDefined
+	[[ -z "$DbSystemDefined" ]] && return
 	if [[ "$DbSystemDefined" = "<SID>" ]]; then
 		_print 3 "**" "Cannot find \"<SID>\" in /etc/auto.direct" ; _skip
 		return
