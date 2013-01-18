@@ -249,7 +249,8 @@ function _validCluster
 function _checkPKGname
 {
 	[[ -z $PKGname ]] && PKGname_tmp=empty || PKGname_tmp=$PKGname
-	ls -1 $SGCONF | grep -E '^(db|ci|z)' | grep -q $PKGname_tmp
+	#ls -1 $SGCONF | grep -E '^(db|ci|z)' | grep -q $PKGname_tmp
+	find $SGCONF  -type d 2>/dev/null | grep -q $PKGname_tmp 2>/dev/null
 	rc=$?
 	if [[ $rc -eq 0 ]]; then
 		_note "Package directory ($PKGname_tmp) found under $SGCONF"
@@ -934,6 +935,7 @@ function _check_sap_system
 	elif [[ "$SapSystemDefined" = "$DbSystemDefined" ]]; then
 		_print 3 "**" "sgesap/sap_global/sap_system $SapSystemDefined" ; _ok
 	else
+		[[ -z "$DbSystemDefined" ]] && DbSystemDefined="<SID>"
 		_print 3 "==" "sgesap/sap_global/sap_system $SapSystemDefined (should be $DbSystemDefined)"; _nok
 	fi
 }
@@ -1275,6 +1277,10 @@ function _check_auto_direct
 {
 	# check if a automount line is present and that proto=udp is not mentioned
 	# SID=$DbSystemDefined
+	if [[ "$DbSystemDefined" = "<SID>" ]]; then
+		_print 3 "**" "Cannot find \"<SID>\" in /etc/auto.direct" ; _skip
+		return
+	fi
 	grep "$DbSystemDefined" /etc/auto.direct | grep -v "^\#" | while read Line
 	do
 		# ok, we found a line of SID, now check udp
@@ -1292,6 +1298,7 @@ function _check_auto_direct
 function _check_dfstab
 {
 	# check if we did not foresee a manual share in /etc/dfs/dfstab
+	[[ "$DbSystemDefined" = "<SID>" ]] && return
 	grep "$DbSystemDefined" /etc/dfs/dfstab | grep -v "^\#" | while read Line
 	do
 		_print 3 "==" "Please move the following line into the ${PKGname}.conf (XFS line)" ; _nok
