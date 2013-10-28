@@ -246,6 +246,18 @@ function _validCluster
 	fi
 }
 
+function _isPkgRunning
+{
+	cmviewcl -fline -p $PackageNameDefined > /tmp/isPkgRunning.txt 2>&1
+	grep -q "is not a configured package name" /tmp/isPkgRunning.txt
+	if [[ $? -eq 0 ]]; then
+		# pkg is not running
+		_warn "Package $PackageNameDefined is \"not\" (yet) a configured package name"
+	else
+		_print 3 "**" "Package $PackageNameDefined is a configured package name" ; _ok
+	fi
+}
+
 function _checkPKGname
 {
 	[[ -z $PKGname ]] && PKGname_tmp=empty || PKGname_tmp=$PKGname
@@ -333,7 +345,7 @@ function _check_auto_run
 	elif [[ "$AutoRunDefined" = "yes" ]]; then
 		_print 3 "**" "Found auto_run ($AutoRunDefined) in ${PKGname}.conf" ; _ok
 	else
-		_warn "Found auto_run ($AutoRunDefined) in ${PKGname}.conf (should be \"yes\")" ; _nok
+		_warn "Found auto_run ($AutoRunDefined) in ${PKGname}.conf (should be \"yes\")" ;# _nok
 	fi
 }
 
@@ -721,7 +733,7 @@ function _check_vg_active
 		if [[ $rc -eq 0 ]]; then
 			_print 3 "**" "VG ${VgDefined[i]} is active on this node"; _ok
 			_check_fs_name ${VgDefined[i]}
-			_check_fs_directory ${VgDefined[i]}
+			_check_fs_directory "${VgDefined[i]}"
 		else
 			_print 3 "**" "VG ${VgDefined[i]} is not active on this node"; _ok
 			_print 3 "**" "We will skip lvol and fs in-depth analysis; rerun when VG is active" ; _skip
@@ -734,13 +746,13 @@ function _check_fs_name
 {
 	# input arg1 VG
 	typeset -i rc
-	typeset VG=$1
-	count_lvols=$(ls $VG | grep -v -E '(group|^r)' | wc -l)	# what we see on $VG directory
-	count_fs_name=$(grep "^fs_name" $PKGnameConf | wc -l)	# what is defined in conf file
+	typeset VG="$1"
+	count_lvols=$(ls "${VG}/" | grep -v -E '(group|^r)' | wc -l)	# what we see on $VG directory
+	count_fs_name=$(grep "^fs_name" $PKGnameConf | grep "${VG}/" | wc -l)	# what is defined in conf file
 	if [[ $count_lvols -ne $count_fs_name ]]; then
 		_print 3 "==" "The amount of fs_name lines ($count_fs_name) defined does not match $VG/*" ; _nok
 	fi
-	grep "^fs_name" $PKGnameConf | awk '{print $2}' | grep $VG | while read lvol
+	grep "^fs_name" $PKGnameConf | awk '{print $2}' | grep "${VG}/" | while read lvol
 	do
 		lvdisplay $lvol >/dev/null 2>&1
 		rc=$?
@@ -762,11 +774,11 @@ function _check_fs_name
 function _check_fs_directory
 {
 	# input arg1 VG
-	typeset VG=$1
+	typeset VG="$1"
 	grep "^fs_directory" $PKGnameConf | awk '{print $2}' | while read dir
 	do
 		_debug "Checking fs_directory=$dir"
-		mount -v | grep $VG | awk '{print $3}' > /tmp/mount-VG-dirs
+		mount -v | awk '{print $1, $3}' > /tmp/mount-VG-dirs
 		grep -q "$dir" /tmp/mount-VG-dirs || {
 			_print 3 "==" "fs_directory=$dir is not mounted"
 			_nok
@@ -1235,12 +1247,12 @@ function _check_ext_scripts
 	[[ -z "$SGCONF" ]] && SGCONF=/etc/cmcluster
 	grep "^external_script" $PKGnameConf | awk '{print $2}' | while read extscript
 	do
-		extscript=${extscript#*/}
+		extscript=${extscript##*/}
 		_debug "external_script $SGCONF/$extscript defined in ${PKGname}.conf"
-		if [[ -f $SGCONF/$extscript ]]; then
-			_print 3 "**" "\$SGCONF/$extscript defined in ${PKGname}.conf" ; _ok
+		if [[ -f ${SGCONF}/scripts/ext/${extscript} ]]; then
+			_print 3 "**" "\$SGCONF/scripts/ext/${extscript} defined in ${PKGname}.conf" ; _ok
 		else
-			_print 3 "==" "\$SGCONF/$extscript not found on this node!" ; _nok
+			_print 3 "==" "\$SGCONF/scripts/ext/${extscript} not found on this node!" ; _nok
 		fi
 	done
 }
@@ -1343,6 +1355,7 @@ done
 
 	# checking general package parameters
 	_check_package_name
+	_isPkgRunning
 	_check_package_description
 	_check_node_name
 	_check_package_type
