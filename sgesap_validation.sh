@@ -253,8 +253,10 @@ function _isPkgRunning
 	if [[ $? -eq 0 ]]; then
 		# pkg is not running
 		_warn "Package $PackageNameDefined is \"not\" (yet) a configured package name"
+		ForceCMGETCONF=0
 	else
-		_print 3 "**" "Package $PackageNameDefined is a configured package name" ; _ok
+		_print 3 "**" "Package $PackageNameDefined is a configured package name (cluster $(cmviewcl -fline | grep ^name= | cut -d= -f2))" ; _ok
+		ForceCMGETCONF=1
 	fi
 }
 
@@ -1049,13 +1051,16 @@ function _check_sapms_service
 {
 	# sapmsXSG        3610/tcp        # SAP System Message Server Port (in /etc/services)
 	[[ -z "${DbSystemDefined}" ]] && return		# no SID defined
-	SapmsServiceDefined=$(grep "^sapms${DbSystemDefined}" /etc/services | awk '{print $2}')
-	_debug "Checking /etc/services for $SapmsServiceDefined"
-	if [[ -z "$SapmsServiceDefined" ]]; then
-		_print 3 "==" "No entry found (of sapms${DbSystemDefined}) found /etc/services" ; _nok
-	else
-		_print 3 "**" "Found entry sapms${DbSystemDefined} in /etc/services ($SapmsServiceDefined)" ; _ok
-	fi
+	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
+	do
+		SapmsServiceDefined=$(cmdo -n $NODE -t 10 grep "^sapms${DbSystemDefined}" /etc/services | grep -v \# | awk '{print $2}')
+		_debug "Checking /etc/services for $SapmsServiceDefined"
+		if [[ -z "$SapmsServiceDefined" ]]; then
+			_print 3 "==" "No entry found (of sapms${DbSystemDefined}) in /etc/services on node $NODE" ; _nok
+		else
+			_print 3 "**" "Found entry $SapmsServiceDefined in /etc/services on node $NODE" ; _ok
+		fi
+	done
 }
 
 function _check_nfs_present
@@ -1356,6 +1361,12 @@ done
 	# checking general package parameters
 	_check_package_name
 	_isPkgRunning
+	# when package is running download the configuration instead of using an older config file
+	if [[ $ForceCMGETCONF -eq 1 ]]; then
+		_note "Executing cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)"
+		cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)
+		PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)
+	fi
 	_check_package_description
 	_check_node_name
 	_check_package_type
@@ -1423,7 +1434,8 @@ done
 
 	_check_ext_scripts
 	_check_debug_file
-	_compare_conf_files
+	# comparing the config files is not really necessary anymore as the real source is saved by cmgetconf
+	#_compare_conf_files
 
 	echo $ERRcode > /tmp/ERRcode.sgesap
 }  2>&1 | tee $instlog # tee is used in case of interactive run
