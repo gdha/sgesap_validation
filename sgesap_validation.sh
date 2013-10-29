@@ -873,6 +873,20 @@ function _check_db_system
 	fi
 }
 
+function _check_orasid_homedir
+{
+	homedir=$(grep ^${orasid} /etc/passwd | cut -d: -f6)
+	# the extra " " after homedir is a must
+	VG=$( mount -v | grep "${homedir} " | awk '{print $1}' | cut -d"/" -f3 )
+	if [[ "$VG" = "vg00" ]]; then
+		# is homedir of orasid is on the local disks then check other node as well
+		_print 3 "==" "Home directory ${homedir} is located on /dev/$VG (use a SAN disk)"; _nok
+	else
+		# if homedir of orasid is on SAN disks we are ok
+		: # do not complain
+	fi
+}
+
 function _check_ora_authorized_keys
 {
 	# this is check only required when working with AFRAX (EMEA only?)
@@ -1363,8 +1377,8 @@ done
 	_isPkgRunning
 	# when package is running download the configuration instead of using an older config file
 	if [[ $ForceCMGETCONF -eq 1 ]]; then
-		_note "Executing cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)"
-		cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)
+		 _print 3 "**" "Executing cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)"
+		cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y) && _ok || _nok
 		PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)
 	fi
 	_check_package_description
@@ -1401,6 +1415,7 @@ done
 		_check_sap_modules
 		_check_db_vendor
 		_check_db_system
+		_check_orasid_homedir
 		_check_ora_authorized_keys
 		_check_sapms_service
 		_check_listener_name
