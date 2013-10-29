@@ -1101,7 +1101,7 @@ function _check_sapms_service
 	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
 	do
 		SapmsServiceDefined=$(cmdo -n $NODE -t 10 grep "^sapms${DbSystemDefined}" /etc/services | grep -v \# | awk '{print $2}')
-		_debug "Checking /etc/services for $SapmsServiceDefined"
+		_debug "Checking /etc/services for sapms${DbSystemDefined}"
 		if [[ -z "$SapmsServiceDefined" ]]; then
 			_print 3 "==" "No entry found (of sapms${DbSystemDefined}) in /etc/services on node $NODE" ; _nok
 		else
@@ -1283,6 +1283,29 @@ function _check_nfs_xfs
 			_note "Use \"ro=$PKGname\" for XFS access list of $expdir"
 		fi
 	done
+}
+
+function _check_netgroup_file
+{
+	# purpose is when we use /etc/netgroup aliases we should check also the XFS lines to see if there are matches
+	if [[ $( grep -v \# /etc/netgroup | wc -l ) -eq 0 ]]; then
+		_debug "File /etc/netgroup is not used (no problem)"
+	else
+		# ok, seems we are using entries in /etc/netgroup, crosscheck with XFS entries needed
+		# save our entries first
+		grep "^nfs/hanfs_export/XFS" $PKGnameConf | awk '{print $3}' | cut -d"," -f2 | cut -d= -f2 | \
+		 tr ':' '\012' | sort -u > /tmp/myXFS_nodelist.tmp
+		for ALIAS in $( grep -v \# /etc/netgroup | awk '{print $1}' )
+		do
+			grep -q $ALIAS /tmp/myXFS_nodelist.tmp
+			if [[ $? -eq 0 ]]; then
+				_print 3 "**" "Found network-group alias $ALIAS in /etc/netgroup used by XFS"; _ok
+			else
+				_print 3 "**" "Found network-group alias $ALIAS in /etc/netgroup not used by XFS"; _skip
+			fi
+		done
+		rm -f /tmp/myXFS_nodelist.tmp
+	fi
 }
 
 function _check_debug_file
@@ -1483,6 +1506,7 @@ done
 		_check_propagate_interval
 		_check_statmon_waittime
 		_check_nfs_xfs
+		_check_netgroup_file
 		_check_auto_direct
 		_check_dfstab
 	fi
