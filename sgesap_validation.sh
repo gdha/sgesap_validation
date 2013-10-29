@@ -1346,17 +1346,22 @@ function _check_auto_direct
 		_print 3 "**" "Cannot find \"<SID>\" in /etc/auto.direct" ; _skip
 		return
 	fi
-	grep "$DbSystemDefined" /etc/auto.direct | grep -v "^\#" | while read Line
+	# we need to check on all nodes the /etc/auto.direct file
+	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
 	do
-		# ok, we found a line of SID, now check udp
-		mntpt=$(echo $Line | awk '{print $1}')
-		echo $Line | grep -q "proto=udp"
-		if [[ $? -eq 0 ]]; then
-			_print 3 "==" "Line of $mntpt in /etc/auto.direct contains \"proto=udp\"" ; _nok
-			_note "Schedule exec: Remove \",proto=udp\" from the line $mntpt in /etc/auto.direct"
-		else
-			_print 3 "**" "Line of $mntpt in /etc/auto.direct use tcp to mount" ; _ok
-		fi
+		_debug "Checking on node $NODE the /etc/auto.direct file"
+		cmdo -n $NODE grep "$DbSystemDefined" /etc/auto.direct | grep -v "^\#" | while read Line
+		do
+			# ok, we found a line of SID, now check udp
+			mntpt=$(echo $Line | awk '{print $1}')
+			echo $Line | grep -q "proto=udp"
+			if [[ $? -eq 0 ]]; then
+				_print 3 "==" "$mntpt in /etc/auto.direct (on node $NODE) contains \"proto=udp\"" ; _nok
+				_note "Schedule exec on node $NODE: Remove \",proto=udp\" from line $mntpt in /etc/auto.direct"
+			else
+				_print 3 "**" "$mntpt in /etc/auto.direct (on node $NODE) uses \"tcp\" to mount" ; _ok
+			fi
+		done
 	done
 }
 
@@ -1449,7 +1454,7 @@ done
 		_check_db_vendor
 		_check_db_system
 		_check_orasid_homedir
-		_check_ora_authorized_keys
+		##_check_ora_authorized_keys  (2 following lines replace this function)
 		[[ ! -z "${orasid}" ]] && _check_authorized_keys ${orasid}
 		[[ ! -z "${sidadm}" ]] && _check_authorized_keys ${sidadm}
 		_check_sapms_service
