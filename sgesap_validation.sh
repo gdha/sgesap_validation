@@ -887,8 +887,41 @@ function _check_orasid_homedir
 	fi
 }
 
+function _check_authorized_keys
+{
+	# check if var $1 (orasid or sidadm) homedir contains .ssh directory
+	homedir=$(grep ^${1} /etc/passwd | cut -d: -f6)
+	if [[ ! -d ${homedir}/.ssh ]]; then
+		_print 3 "==" "Directory ${homedir}/.ssh does not exist" ; _nok
+		return  # nothing further to check if ~/.ssh does not exist
+	else
+		_debug "Found ${homedir}/.ssh"
+	fi
+	# check ~/.ssh permission (should be 700)
+	pmode=$( ls -ld ${homedir}/.ssh | awk '{print $1}' )  # drwx------
+	case "$pmode" in
+	  "drwx------") _debug "Permission setting of ${homedir}/.ssh is correct" ;;
+	  *           ) _print 3 "==" "Directory ${homedir}/.ssh should have permission mode 700" ; _nok
+	esac
+	# check ownership
+	if [[ "$(ls -ld ${homedir} | awk '{print $3}')" != "${1}" ]]; then
+		_print 3 "==" "Ownership is not correct of ${homedir} (must be ${1}" ; _nok
+		_note "Schedule exec: chown -R ${1} ${homedir}"
+	else
+		_debug "Ownership of ${homedir} is correct"
+	fi
+
+	# check if ~/.ssh/authorized_keys exists
+	if [[ ! -f ${homedir}/.ssh/authorized_keys ]]; then
+		_print 3 "==" "SSH file ${homedir}/.ssh/authorized_keys not found" ; _nok
+	else
+		_debug "SSH file ${homedir}/.ssh/authorized_keys found"
+	fi
+}
+
 function _check_ora_authorized_keys
 {
+	### obsolete function ###
 	# this is check only required when working with AFRAX (EMEA only?)
 	# the SGS user keys are created on host basis and cannot cope with a virtual hostname
 	# therefore, we keys the keys for each orasid in /home/orasid/.ssh/authorized_keys file
@@ -1417,6 +1450,8 @@ done
 		_check_db_system
 		_check_orasid_homedir
 		_check_ora_authorized_keys
+		[[ ! -z "${orasid}" ]] && _check_authorized_keys ${orasid}
+		[[ ! -z "${sidadm}" ]] && _check_authorized_keys ${sidadm}
 		_check_sapms_service
 		_check_listener_name
 		_check_sap_system
