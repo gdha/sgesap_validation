@@ -293,6 +293,28 @@ function _check_package_name
 	fi
 }
 
+function _check_package_defined_in_hosts_file
+{
+	PackageNameDefined=$(grep ^package_name $PKGnameConf | awk '{print $2}')
+	if [[ -z $PackageNameDefined ]]; then
+		_print 3 "==" "Empty package_name - cannot check /etc/hosts file" ; _nok
+	else
+		for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
+		do
+			_debug "Checking on node $NODE the /etc/hosts file"
+			cmdo -n $NODE grep "$PackageNameDefined" /etc/hosts | grep -v "^\#" | while read Line
+			do
+				echo $Line | grep -q "$PackageNameDefined" 2>/dev/null
+				if [[ $? -eq 0 ]]; then
+					_print 3 "**" "Found hostname ($PackageNameDefined) in /etc/hosts on node $NODE" ; _ok
+				else
+					_print 3 "==" "Hostname ($PackageNameDefined) not found in /etc/hosts on node $NODE" ; _nok
+				fi
+			done
+		done
+	fi
+}
+
 function _check_package_description
 {
 	PackageDescriptionDefined=$(grep ^package_description $PKGnameConf | cut -c20- | sed -e 's/"//g' | awk 'BEGIN {OFS=" "}{$1=$1; print}')
@@ -1442,6 +1464,7 @@ done
 		cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y) && _ok || _nok
 		PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)
 	fi
+	_check_package_defined_in_hosts_file
 	_check_package_description
 	_check_node_name
 	_check_package_type
