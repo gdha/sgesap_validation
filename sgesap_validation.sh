@@ -195,10 +195,11 @@ function _isnum
 function _show_help_sgesap_validation
 {
 	cat - <<-end-of-text
-	Usage: $PRGNAME [-d] [-s] [-h] package_name
+	Usage: $PRGNAME [-d] [-s] [-h] [-f] package_name
 
 	-d:	Enable debug mode (by default off)
 	-s:	Disable SGeSAP tetsing in package configuration file
+	-f:	Force the read the local package_name.conf file instead of the one from cmgetconf
 	-h:	Show usage [this page]
 
 	end-of-text
@@ -1435,6 +1436,9 @@ while [ $# -gt 0 ]; do
 		-h) _show_help_${PRGNAME%.*}
 		    exit 1
 		    ;;
+                -f) READLOCALCONFFILE=1
+		    shift 1
+		    ;;
 		-*) _show_help_${PRGNAME%.*}
 		    exit 1
 		    ;;
@@ -1459,7 +1463,7 @@ done
 	_check_package_name
 	_isPkgRunning
 	# when package is running download the configuration instead of using an older config file
-	if [[ $ForceCMGETCONF -eq 1 ]]; then
+	if [[ -z "$READLOCALCONFFILE" ]] && [[ $ForceCMGETCONF -eq 1 ]]; then
 		 _print 3 "**" "Executing cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)"
 		cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y) && _ok || _nok
 		PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)
