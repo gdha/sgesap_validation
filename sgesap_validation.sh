@@ -5,6 +5,8 @@
 # This script checks the serviceguard configuration whether the
 # minimum parameters are setup correctly
 
+# $Id: $
+
 [[ -f /etc/cmcluster.conf ]] && . /etc/cmcluster.conf
 
 #
