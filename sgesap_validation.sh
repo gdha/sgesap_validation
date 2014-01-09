@@ -172,10 +172,8 @@ function _osrevision
 
 function _is_var_empty
 {
-	if [ -z "$1" ]; then
-		_show_help_${PRGNAME%.*}
-		exit 1
-	fi
+	[[ -z "$1" ]] && return 1
+	return 0
 }
 
 function _date
@@ -468,7 +466,8 @@ function _check_priority
 
 function _check_ip_subnet
 {
-	IpSubnetDefined=$(grep ^ip_subnet $PKGnameConf | awk '{print $2}' | wc -l)
+	# check for ip_subnet (need extra space) as ip_subnet_node is also a known keyword
+	IpSubnetDefined=$(grep "^ip_subnet[[:blank:]]" $PKGnameConf | awk '{print $2}' | wc -l)
 	if [[ $IpSubnetDefined -ge 1 ]]; then
 		_print 3 "**" "Found ip_subnet ($IpSubnetDefined line(s)) in ${PKGname}.conf" ; _ok
 	else
@@ -532,7 +531,7 @@ function _check_enable_threaded_vgchange
 	elif [[ $EnableThreadedVgchangeDefined -eq 1 ]]; then
 		 _print 3 "**" "Found enable_threaded_vgchange ($EnableThreadedVgchangeDefined) in ${PKGname}.conf" ; _ok
 	else
-		_print 3 "**" "Found enable_threaded_vgchange ($EnableThreadedVgchangeDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found enable_threaded_vgchange ($EnableThreadedVgchangeDefined) in ${PKGname}.conf (use \"1\")" ; _nok
 	fi
 
 }
@@ -547,7 +546,7 @@ function _check_concurrent_vgchange_operations
 
 	i=$(_isnum $ConcurrentVgchangeOperationsDefined)	# if string i=0, otherwise i=ConcurrentVgchangeOperationsDefined
 	if [[ $ConcurrentVgchangeOperationsDefined -lt 2 ]]; then
-		_print 3 "**" "Found concurrent_vgchange_operations ($ConcurrentVgchangeOperationsDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found concurrent_vgchange_operations ($ConcurrentVgchangeOperationsDefined) in ${PKGname}.conf (use \"2\")" ; _nok
 	else
 		_print 3 "**" "Found concurrent_vgchange_operations ($ConcurrentVgchangeOperationsDefined) in ${PKGname}.conf" ; _ok
 	fi
@@ -563,7 +562,7 @@ function _check_fs_umount_retry_count
 
 	i=$(_isnum $FsUmountRetryCountDefined)
 	if [[ $FsUmountRetryCountDefined -lt 3 ]]; then
-		_print 3 "**" "Found fs_umount_retry_count ($FsUmountRetryCountDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found fs_umount_retry_count ($FsUmountRetryCountDefined) in ${PKGname}.conf (use \"3\")" ; _nok
 	else
 		_print 3 "**" "Found fs_umount_retry_count ($FsUmountRetryCountDefined) in ${PKGname}.conf" ; _ok
 	fi
@@ -579,7 +578,7 @@ function _check_fs_mount_retry_count
 
 	i=$(_isnum $FsMountRetryCountDefined)
 	if [[ $FsMountRetryCountDefined -lt 3 ]]; then
-		_print 3 "**" "Found fs_mount_retry_count ($FsMountRetryCountDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found fs_mount_retry_count ($FsMountRetryCountDefined) in ${PKGname}.conf (use \"3\")" ; _nok
 	else
 		_print 3 "**" "Found fs_mount_retry_count ($FsMountRetryCountDefined) in ${PKGname}.conf" ; _ok
 	fi
@@ -595,7 +594,7 @@ function _check_concurrent_mount_and_umount_operations
 
 	i=$(_isnum $ConcurrentMountAndUmountOperationsDefined)
 	if [[ $ConcurrentMountAndUmountOperationsDefined -lt 3 ]]; then
-		_print 3 "**" "Found concurrent_mount_and_umount_operations ($ConcurrentMountAndUmountOperationsDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found concurrent_mount_and_umount_operations ($ConcurrentMountAndUmountOperationsDefined) in ${PKGname}.conf (use \"3\")" ; _nok
 	else
 		_print 3 "**" "Found concurrent_mount_and_umount_operations ($ConcurrentMountAndUmountOperationsDefined) in ${PKGname}.conf" ; _ok
 	fi
@@ -611,7 +610,7 @@ function _check_concurrent_fsck_operations
 
 	i=$(_isnum $ConcurrentFsckOperationsDefined)
 	if [[ $ConcurrentFsckOperationsDefined -lt 3 ]]; then
-		_print 3 "**" "Found concurrent_fsck_operations ($ConcurrentFsckOperationsDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found concurrent_fsck_operations ($ConcurrentFsckOperationsDefined) in ${PKGname}.conf (use \"3\")" ; _nok
 	else
 		_print 3 "**" "Found concurrent_fsck_operations ($ConcurrentFsckOperationsDefined) in ${PKGname}.conf" ; _ok
 	fi
@@ -815,7 +814,7 @@ function _check_fs_directory
 				}
 			}
 		vxupgrade $dir | grep -q "version 5" && {
-			_note "Schedule exec: vxupgrade -n 7 $dir"
+			_debug "Schedule exec: vxupgrade -n 7 $dir"
 		}
 	done
 	rm -f /tmp/mount-VG-dirs
@@ -889,12 +888,42 @@ function _check_db_system
 	else
 		_print 3 "==" "User ${orasid} home directory is $homedir (should be /oracle/${DbSystemDefined})" ; _nok
 	fi
+}
+
+function _check_sidadm_homedir
+{
 	# check home-dir of $sidadm 
 	homedir=$(grep ^${sidadm} /etc/passwd | cut -d: -f6)
 	if [[ -z "$homedir" ]]; then
 		_print 3 "==" "User ${sidadm} not known on this node" ; _nok
 	else
 		_print 3 "**" "User ${sidadm} home directory is $homedir"; _ok
+	fi
+}
+
+function _check_startdb_log_ownership
+{
+	homedir=$(grep ^${sidadm} /etc/passwd | cut -d: -f6)
+	# all start*.log files must be owned by ${sidadm} - we will catch not valid user in $owner
+	owner=$( ls -l $homedir/start*.log | awk '{print $3}' | sort -u | grep -v ${sidadm} | tail -1 )
+	# owner should be an empty var (if all log files were owned by ${sidadm})
+	if [[ ! -z "$owner" ]]; then
+		_print 3 "==" "One or more start\*log files are owned by user $owner (should be ${sidadm})" ; _nok
+	else
+		_debug "All $homedir/start\*.log are owned by user ${sidadm}"
+	fi
+}
+
+function _check_stopdb_log_ownership
+{
+	homedir=$(grep ^${sidadm} /etc/passwd | cut -d: -f6)
+	# all start*.log files must be owned by ${sidadm} - we will catch not valid user in $owner
+	owner=$( ls -l $homedir/stop*.log | awk '{print $3}' | sort -u | grep -v ${sidadm} | tail -1 )
+	# owner should be an empty var (if all log files were owned by ${sidadm})
+	if [[ ! -z "$owner" ]]; then
+		_print 3 "==" "One or more stop\*log files are owned by user $owner (should be ${sidadm})" ; _nok
+	else
+		_debug "All $homedir/stop\*.log are owned by user ${sidadm}"
 	fi
 }
 
@@ -922,11 +951,11 @@ function _check_authorized_keys
 	else
 		_debug "Found ${homedir}/.ssh"
 	fi
-	# check ~/.ssh permission (should be 700)
-	pmode=$( ls -ld ${homedir}/.ssh | awk '{print $1}' )  # drwx------
+	# check ~/.ssh permission (should be 700) (use H option to follow symbolic link)
+	pmode=$( ls -lHd ${homedir}/.ssh | awk '{print $1}' )  # drwx------
 	case "$pmode" in
 	  "drwx------") _debug "Permission setting of ${homedir}/.ssh is correct" ;;
-	  *           ) _print 3 "==" "Directory ${homedir}/.ssh should have permission mode 700" ; _nok
+	  *           ) _warn "Directory ${homedir}/.ssh should have permission mode 700" ;; 
 	esac
 	# check ownership
 	if [[ "$(ls -ld ${homedir} | awk '{print $3}')" != "${1}" ]]; then
@@ -1125,7 +1154,7 @@ function _check_sapms_service
 	[[ -z "${DbSystemDefined}" ]] && return		# no SID defined
 	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
 	do
-		SapmsServiceDefined=$(cmdo -n $NODE -t 10 grep "^sapms${DbSystemDefined}" /etc/services | grep -v \# | awk '{print $2}')
+		SapmsServiceDefined=$(cmdo -n $NODE -t 10 grep "^sapms${DbSystemDefined}[[:blank:]]" /etc/services | grep -v "^\#" | awk '{print $2}')
 		_debug "Checking /etc/services for sapms${DbSystemDefined}"
 		if [[ -z "$SapmsServiceDefined" ]]; then
 			_print 3 "==" "No entry found (of sapms${DbSystemDefined}) in /etc/services on node $NODE" ; _nok
@@ -1450,6 +1479,11 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
+_is_var_empty "$PKGname"
+if [[ $? -eq 1 ]]; then
+	_show_help_${PRGNAME%.*}
+	exit 1
+fi
 
 { # start of MAIN body (everything will be logged)
 	[[ -z "$SGCONF" ]] && SGCONF=/etc/cmcluster
@@ -1506,9 +1540,13 @@ done
 		_check_db_vendor
 		_check_db_system
 		_check_orasid_homedir
+		_check_sidadm_homedir
 		##_check_ora_authorized_keys  (2 following lines replace this function)
 		[[ ! -z "${orasid}" ]] && _check_authorized_keys ${orasid}
 		[[ ! -z "${sidadm}" ]] && _check_authorized_keys ${sidadm}
+		# function to check sidadm startdb.log ownership (if root is owner SAP will not start)
+		_check_startdb_log_ownership
+		_check_stopdb_log_ownership
 		_check_sapms_service
 		_check_listener_name
 		_check_sap_system
