@@ -1441,9 +1441,17 @@ function _check_netids_in_auto_direct
 			# ok, we found a line of SID, now check netids protocol (must match $NfsSupportedNetids)
 			#/sapmnt/OAC "-vers=3,proto=tcp,retry=3" dbciOAC.ncsbe.eu.jnj.com:/export/sapmnt/OAC
 			mntpt=$(echo $Line | awk '{print $1}')
-			protocol=$(echo $Line | awk '{print $2}' | cut -d"," -f2 | cut -d= -f2)
+			protocol=$(echo $Line | awk '{print $3}' | cut -d"," -f2 | cut -d= -f2)
 			if [[ "$NfsSupportedNetids" = "$protocol" ]]; then
 				_print 3 "**" "$mntpt in /etc/auto.direct (on node $NODE) uses \"$protocol\" to mount" ; _ok
+			elif [[ -z "$NfsSupportedNetids" ]]; then
+				# we assume if "$NfsSupportedNetids" is empty the proto=udp
+				if [[ "$protocol" = "udp" ]]; then
+					_print 3 "**" "$mntpt in /etc/auto.direct (on node $NODE) uses \"$protocol\" to mount" ; _ok
+				else
+					_print 3 "==" "$mntpt in /etc/auto.direct (on node $NODE) contains \"proto=$protocol\"" ; _nok
+					_note "Schedule exec on node $NODE: define nfs/hanfs_export/SUPPORTED_NETIDS \"udp\" in ${PKGname}.conf"
+				fi
 			else
 				_print 3 "==" "$mntpt in /etc/auto.direct (on node $NODE) contains \"proto=$protocol\"" ; _nok
 				_note "Schedule exec on node $NODE: Change \",proto=$protocol\" into \",proto=$NfsSupportedNetids\" from line $mntpt in /etc/auto.direct"
