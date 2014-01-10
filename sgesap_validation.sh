@@ -264,7 +264,13 @@ function _isPkgRunning
 function _checkPKGname
 {
 	[[ -z $PKGname ]] && PKGname_tmp=empty || PKGname_tmp=$PKGname
-	#ls -1 $SGCONF | grep -E '^(db|ci|z)' | grep -q $PKGname_tmp
+	# PKGname_tmp could be a file name
+	# Try to extract a package_name (best effort only!)
+	if [[ -f $PKGname_tmp ]]; then
+		PKGname_tmp=${PKGname_tmp##*/}    # remove everything before last /, ./pkg.conf becomes pkg.conf
+		PKGname_tmp=${PKGname_tmp%.*}     # remove .*, pkg.conf becomes pkg
+		PKGname=$PKGname_tmp
+	fi
 	find $SGCONF  ! -type f 2>/dev/null | grep -q $PKGname_tmp 2>/dev/null
 	rc=$?
 	if [[ $rc -eq 0 ]]; then
