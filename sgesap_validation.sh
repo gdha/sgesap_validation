@@ -63,7 +63,7 @@ function _error
 	exit 1
 }
 
-function _warn
+function _warning
 {
 	printf " *** WARN: $* \n"
 }
@@ -82,6 +82,11 @@ function _nok
 function _skip
 {
 	echo "[ SKIP ]"
+}
+
+function _warn
+{
+	echo "[ WARN ]"
 }
 
 function _askYN
@@ -167,7 +172,7 @@ function _osrevision
 		HP-UX) : ;;
 		*) _error "Script $PRGNAME does not support platform $platform" ;;
 	esac
-	_note "Running on $platform $os"
+	_print 3 "**" "Running on $platform $os" ; _ok
 }
 
 function _is_var_empty
@@ -216,7 +221,7 @@ function _validSG
 	release=$(/usr/sbin/swlist T1905CA.ServiceGuard | tail -1 | awk '{print $2}')
 	rc=$(_my_grep "A.11.20" $release)
 	if [[ $rc -eq 1 ]]; then
-		_note "Serviceguard $release is valid"
+		_print 3 "**" "Serviceguard $release is valid" ; _ok
 	else
 		_error "Serviceguard $release is not valid (expecting A.11.20.*)"
 	fi
@@ -227,9 +232,9 @@ function _validSGeSAP
 	release=$(/usr/sbin/swlist T2803BA | tail -1 | awk '{print $2}')
 	rc=$(_my_grep "B.05.10" $release)
 	if [[ $rc -eq 1 ]]; then
-		_note "Serviceguard Extension for SAP $release is valid"
+		_print 3 "**" "Serviceguard Extension for SAP $release is valid" ; _ok
 	else
-		_note "Serviceguard Extension for SAP $release is not valid (expecting B.05.10)"
+		_print 3 "==" "Serviceguard Extension for SAP $release is not valid (expecting B.05.10)"; _warn
 	fi
 }
 
@@ -239,7 +244,7 @@ function _validCluster
 	echo $out | grep -q up
 	rc=$?
 	if [[ $rc -eq 0 ]]; then
-		_note "A valid cluster found, which is running:"
+		_print 3 "**" "A valid cluster found, which is running" ; _ok
 		_print 3 " "  "$out"
 		printf "\n"	# to have a proper linefeed
 	else
@@ -253,7 +258,7 @@ function _isPkgRunning
 	grep -q "is not a configured package name" /tmp/isPkgRunning.txt
 	if [[ $? -eq 0 ]]; then
 		# pkg is not running
-		_warn "Package $PackageNameDefined is \"not\" (yet) a configured package name"
+		_print 3 "**" "Package $PackageNameDefined is \"not\" (yet) a configured package name" ; _warn
 		ForceCMGETCONF=0
 	else
 		_print 3 "**" "Package $PackageNameDefined is a configured package name (cluster $(cmviewcl -fline | grep ^name= | cut -d= -f2))" ; _ok
@@ -274,7 +279,7 @@ function _checkPKGname
 	find $SGCONF  ! -type f 2>/dev/null | grep -q $PKGname_tmp 2>/dev/null
 	rc=$?
 	if [[ $rc -eq 0 ]]; then
-		_note "Package directory ($PKGname_tmp) found under $SGCONF"
+		_print 3 "**" "Package directory ($PKGname_tmp) found under $SGCONF" ; _ok
 	else
 		_error "Package directory ($PKGname_tmp) does not exist"
 	fi
@@ -284,7 +289,7 @@ function _checkPKGnameConf
 {
 	PKGnameConf="$SGCONF/${PKGname}/${PKGname}.conf"
 	if [[ -f $PKGnameConf ]]; then
-		_note "Found configuration file $PKGnameConf"
+		_print 3 "**" "Found configuration file $PKGnameConf" ; _ok
 	else
 		_error "Serviveguard package configuration file $PKGnameConf not found"
 	fi
@@ -359,12 +364,12 @@ function _check_package_type
 		_print 3 "==" "Missing package_type in ${PKGname}.conf" ; _nok
 	elif [[ "$PackageTypeDefined" = "failover" ]]; then
 		grep ^module_name $PKGnameConf | grep -q failover || {
-			_warn "Use the package module file \"-m sg/failover\" with cmmakepkg"
+			_warning "Use the package module file \"-m sg/failover\" with cmmakepkg"
 		}
 		_print 3 "**" "Found package_type ($PackageTypeDefined) in ${PKGname}.conf" ; _ok
 	## FIXME: add elif for other package types
 	else
-		_warn "Found package_type ($PackageTypeDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "==" "Found package_type ($PackageTypeDefined) in ${PKGname}.conf" ; _nok
 	fi
 }
 
@@ -376,7 +381,7 @@ function _check_auto_run
 	elif [[ "$AutoRunDefined" = "yes" ]]; then
 		_print 3 "**" "Found auto_run ($AutoRunDefined) in ${PKGname}.conf" ; _ok
 	else
-		_warn "Found auto_run ($AutoRunDefined) in ${PKGname}.conf (should be \"yes\")" ;# _nok
+		_print 3 "**" "Found auto_run ($AutoRunDefined) in ${PKGname}.conf (should be \"yes\")" ; _warn
 	fi
 }
 
@@ -384,11 +389,13 @@ function _check_node_fail_fast_enabled
 {
 	NodeFailFastEnabledDefined=$(grep ^node_fail_fast_enabled $PKGnameConf | awk '{print $2}' | tr '[A-Z]' '[a-z]')
 	if [[ -z "$NodeFailFastEnabledDefined" ]]; then
-		_print 3 "==" "Missing node_fail_fast_enabled in ${PKGname}.conf" ; _nok
+		_print 3 "==" "Missing node_fail_fast_enabled in ${PKGname}.conf (default is \"no\")" ; _warn
 	elif [[ "$NodeFailFastEnabledDefined" = "no" ]]; then
 		_print 3 "**" "Found node_fail_fast_enabled ($NodeFailFastEnabledDefined) in ${PKGname}.conf" ; _ok
+	elif [[ "$NodeFailFastEnabledDefined" = "yes" ]]; then
+		_print 3 "**" "Found node_fail_fast_enabled ($NodeFailFastEnabledDefined) in ${PKGname}.conf" ; _ok
 	else
-		_warn "Found node_fail_fast_enabled ($NodeFailFastEnabledDefined) in ${PKGname}.conf" ; _nok
+		_print "==" "Found node_fail_fast_enabled ($NodeFailFastEnabledDefined) in ${PKGname}.conf (use \"yes\" or \"no\")" ; _nok
 	fi
 }
 
@@ -401,7 +408,7 @@ function _check_failover_policy
 		_print 3 "**" "Found failover_policy ($FailoverPolicyDefined) in ${PKGname}.conf" ; _ok
 	else
 		# FIXME: add entries for min_package_node, site_preferred, site_preferred_manual
-		_warn "Found failover_policy ($FailoverPolicyDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found failover_policy ($FailoverPolicyDefined) in ${PKGname}.conf" ; _warn
 	fi
 }
 
@@ -414,7 +421,7 @@ function _check_failback_policy
 		_print 3 "**" "Found failback_policy ($FailbackPolicyDefined) in ${PKGname}.conf" ; _ok
 	else
 		# FIXME: add entry for 'automatic'
-		_warn "Found failback_policy ($FailbackPolicyDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found failback_policy ($FailbackPolicyDefined) in ${PKGname}.conf" ; _warn
 	fi
 }
 
@@ -427,7 +434,7 @@ function _check_run_script_timeout
 		_print 3 "**" "Found run_script_timeout ($RunScriptTimeoutDefined) in ${PKGname}.conf" ; _ok
 	else
 		# FIXME: integer > 0
-		_warn "Found run_script_timeout ($RunScriptTimeoutDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found run_script_timeout ($RunScriptTimeoutDefined) in ${PKGname}.conf" ; _warn
 	fi
 }
 
@@ -440,7 +447,7 @@ function _check_halt_script_timeout
 		_print 3 "**" "Found halt_script_timeout ($HaltScriptTimeoutDefined) in ${PKGname}.conf" ; _ok
 	else
 		# FIXME: integer > 0
-		_warn "Found halt_script_timeout ($HaltScriptTimeoutDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found halt_script_timeout ($HaltScriptTimeoutDefined) in ${PKGname}.conf" ; _warn
 	fi
 }
 
@@ -453,7 +460,7 @@ function _check_successor_halt_timeout
 		_print 3 "**" "Found successor_halt_timeout ($SuccessorHaltTimeoutputDefined) in ${PKGname}.conf" ; _ok
 	else
 		# FIXME: integer >= 0 && <= 4294
-		_warn "Found successor_halt_timeout ($SuccessorHaltTimeoutputDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found successor_halt_timeout ($SuccessorHaltTimeoutputDefined) in ${PKGname}.conf" ; _warn
 	fi
 }
 
@@ -466,7 +473,7 @@ function _check_priority
 		_print 3 "**" "Found priority ($PriorityDefined) in ${PKGname}.conf" ; _ok
 	else
 		# FIXME: integer between 1 and 3000
-		_warn "Found priority ($PriorityDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found priority ($PriorityDefined) in ${PKGname}.conf" ; _warn
 	fi
 }
 
@@ -487,7 +494,7 @@ function _check_ip_address
 	if [[ $IpAddressDefined -ge 1 ]]; then
 		_print 3 "**" "Found ip_address ($IpAddressDefined line(s)) in ${PKGname}.conf" ; _ok
 		[[ $IpAddressDefined -ne $IpSubnetDefined ]] && \
-		    _warn "Amount of ip_subnet ($IpSubnetDefined) is not the same of ip_address ($IpAddressDefined)" 
+		    _warning "Amount of ip_subnet ($IpSubnetDefined) is not the same of ip_address ($IpAddressDefined)" 
 	else
 		_print 3 "==" "Missing ip_address in ${PKGname}.conf" ; _nok
 	fi
@@ -501,7 +508,7 @@ function _check_local_lan_failover_allowed
 	elif [[ "$LocalLanFailoverAllowedDefined" = "yes" ]]; then
 		_print 3 "**" "Found local_lan_failover_allowed ($LocalLanFailoverAllowedDefined) in ${PKGname}.conf" ; _ok
 	else
-		_warn "Found local_lan_failover_allowed ($LocalLanFailoverAllowedDefined) in ${PKGname}.conf" ; _nok
+		_print 3 "**" "Found local_lan_failover_allowed ($LocalLanFailoverAllowedDefined) in ${PKGname}.conf" ; _warn
 	fi
 }
 
@@ -961,7 +968,7 @@ function _check_authorized_keys
 	pmode=$( ls -lHd ${homedir}/.ssh | awk '{print $1}' )  # drwx------
 	case "$pmode" in
 	  "drwx------") _debug "Permission setting of ${homedir}/.ssh is correct" ;;
-	  *           ) _warn "Directory ${homedir}/.ssh should have permission mode 700" ;; 
+	  *           ) _print 3 "**" "Directory ${homedir}/.ssh should have permission mode 700" ; _warn ;; 
 	esac
 	# check ownership
 	if [[ "$(ls -ld ${homedir} | awk '{print $3}')" != "${1}" ]]; then
@@ -1196,7 +1203,7 @@ function _check_nfs_supported_netids
 	if [[ -z "$NfsSupportedNetids" ]]; then
 		_print 3 "==" "Missing nfs/hanfs_export/SUPPORTED_NETIDS in ${PKGname}.conf (use \"tcp\")" ; _nok
 	elif [[ "$NfsSupportedNetids" = "udp" ]]; then
-		_print 3 "==" "nfs/hanfs_export/SUPPORTED_NETIDS $NfsSupportedNetids (should be \"tcp\")" ; _nok
+		_print 3 "==" "nfs/hanfs_export/SUPPORTED_NETIDS $NfsSupportedNetids (should be \"tcp\")" ; _ok
 	elif [[ "$NfsSupportedNetids" = "tcp" ]]; then
 		_print 3 "**" "nfs/hanfs_export/SUPPORTED_NETIDS $NfsSupportedNetids" ; _ok
 	else
@@ -1420,30 +1427,54 @@ function _compare_conf_files
 	fi
 }
 
-function _check_auto_direct
+function _check_netids_in_auto_direct
 {
 	# check if a automount line is present and that proto=udp is not mentioned
 	# SID=$DbSystemDefined
-	[[ -z "$DbSystemDefined" ]] && return
-	if [[ "$DbSystemDefined" = "<SID>" ]]; then
-		_print 3 "**" "Cannot find \"<SID>\" in /etc/auto.direct" ; _skip
-		return
-	fi
+	
 	# we need to check on all nodes the /etc/auto.direct file
 	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
 	do
 		_debug "Checking on node $NODE the /etc/auto.direct file"
 		cmdo -n $NODE grep "$DbSystemDefined" /etc/auto.direct | grep -v "^\#" | while read Line
 		do
-			# ok, we found a line of SID, now check udp
+			# ok, we found a line of SID, now check netids protocol (must match $NfsSupportedNetids)
+			#/sapmnt/OAC "-vers=3,proto=tcp,retry=3" dbciOAC.ncsbe.eu.jnj.com:/export/sapmnt/OAC
 			mntpt=$(echo $Line | awk '{print $1}')
-			echo $Line | grep -q "proto=udp"
-			if [[ $? -eq 0 ]]; then
-				_print 3 "==" "$mntpt in /etc/auto.direct (on node $NODE) contains \"proto=udp\"" ; _nok
-				_note "Schedule exec on node $NODE: Remove \",proto=udp\" from line $mntpt in /etc/auto.direct"
+			protocol=$(echo $Line | awk '{print $2}' | cut -d"," -f2 | cut -d= -f2)
+			if [[ "$NfsSupportedNetids" = "$protocol" ]]; then
+				_print 3 "**" "$mntpt in /etc/auto.direct (on node $NODE) uses \"$protocol\" to mount" ; _ok
 			else
-				_print 3 "**" "$mntpt in /etc/auto.direct (on node $NODE) uses \"tcp\" to mount" ; _ok
+				_print 3 "==" "$mntpt in /etc/auto.direct (on node $NODE) contains \"proto=$protocol\"" ; _nok
+				_note "Schedule exec on node $NODE: Change \",proto=$protocol\" into \",proto=$NfsSupportedNetids\" from line $mntpt in /etc/auto.direct"
 			fi
+		done
+	done
+}
+
+function _check_commented_sapmnt_in_auto_direct
+{
+	# purpose of this function is to display any /sapmnt/SID line which is commented in /etc/auto.direct
+	# SID=$DbSystemDefined
+	[[ -z "$DbSystemDefined" ]] && return
+	if [[ "$DbSystemDefined" = "<SID>" ]]; then
+		_print 3 "**" "Cannot find \"<SID>\" in /etc/auto.direct" ; _skip
+		return
+	fi
+
+	# we need to check on all nodes the /etc/auto.direct file
+	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
+	do
+		_debug "Checking on node $NODE the /etc/auto.direct file for commented sapmnt entries"
+		cmdo -n $NODE grep "$DbSystemDefined" /etc/auto.direct | grep "^\#" | while read Line
+		do
+			# as we grep # lines skip the ##Executing on node line
+			echo $Line | grep -q "Executing on node" && continue
+			# ok, we found a line of SID, now check
+			#/sapmnt/XRC "-vers=3,proto=udp,retry=3" dbciXRC.company.com:/export/sapmnt/XRC
+			mntpt=$(echo $Line | awk '{print $1}' | sed -e 's/\#//')  # remove #
+			_print 3 "==" "Mount point $mntpt is commented in /etc/auto.direct on node $NODE" ; _nok
+			_note "Schedule exec on node $NODE: Remove the \"#\" from $mntpt in /etc/auto.direct" 
 		done
 	done
 }
@@ -1580,7 +1611,8 @@ fi
 		_check_statmon_waittime
 		_check_nfs_xfs
 		_check_netgroup_file
-		_check_auto_direct
+		_check_commented_sapmnt_in_auto_direct
+		_check_netids_in_auto_direct
 		_check_dfstab
 	fi
 
