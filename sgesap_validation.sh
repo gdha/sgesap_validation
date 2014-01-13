@@ -886,6 +886,8 @@ function _check_db_system
 	DbSystemDefined=$(grep "^sgesap/db_global/db_system" $PKGnameConf | awk '{print $2}')
 	if [[ -z "$DbSystemDefined" ]]; then
 		_print 3 "==" "sgesap/db_global/db_system not defined in ${PKGname}.conf (set \"<SID>\")" ; _nok
+		orasid=UNKNOWN
+		sidadm=UNKNOWN
 		return
 	fi
 	# $DbSystemDefined contains the <SID> in uppercase
@@ -942,15 +944,23 @@ function _check_stopdb_log_ownership
 
 function _check_orasid_homedir
 {
+	if [[ "$orasid" = "UNKNOWN" ]]; then
+		_print 3 "==" "Home directory of oraSID is unknown (webdispatcher perhaps?)" ; _skip
+		return
+	fi
 	homedir=$(grep ^${orasid} /etc/passwd | cut -d: -f6)
-	# the extra " " after homedir is a must
-	VG=$( mount -v | grep "${homedir} " | awk '{print $1}' | cut -d"/" -f3 )
+	# cmdo is required as we do not know where the package is active and the extra " " after homedir is a must
+	VG=$( cmdo mount -v | grep "${homedir} " | awk '{print $1}' | cut -d"/" -f3 )
+	if [[ ! -c /dev/$VG/group ]]; then
+		_print 3 "==" "Volume group $VG is unknown on this system ($lhost)" ; _nok
+		_note "Schedule exec: vgexport (preview mode) and vgimport VG $VG"
+	fi
 	if [[ "$VG" = "vg00" ]]; then
 		# is homedir of orasid is on the local disks then check other node as well
 		_print 3 "==" "Home directory ${homedir} is located on /dev/$VG (use a SAN disk)"; _nok
 	else
 		# if homedir of orasid is on SAN disks we are ok
-		: # do not complain
+		_debug "Home directory ${homedir} is located on a SAN device (VG $VG)"
 	fi
 }
 
