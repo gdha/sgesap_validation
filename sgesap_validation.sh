@@ -1441,7 +1441,12 @@ function _check_netids_in_auto_direct
 			# ok, we found a line of SID, now check netids protocol (must match $NfsSupportedNetids)
 			#/sapmnt/OAC "-vers=3,proto=tcp,retry=3" dbciOAC.ncsbe.eu.jnj.com:/export/sapmnt/OAC
 			mntpt=$(echo $Line | awk '{print $1}')
-			protocol=$(echo $Line | awk '{print $3}' | cut -d"," -f2 | cut -d= -f2)
+			echo $Line | grep -q "proto=tcp"
+			if [[ $? -eq 0 ]]; then
+				protocol=tcp
+			else
+				protocol=udp
+			fi
 			if [[ "$NfsSupportedNetids" = "$protocol" ]]; then
 				_print 3 "**" "$mntpt in /etc/auto.direct (on node $NODE) uses \"$protocol\" to mount" ; _ok
 			elif [[ -z "$NfsSupportedNetids" ]]; then
