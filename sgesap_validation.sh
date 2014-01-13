@@ -500,6 +500,15 @@ function _check_ip_address
 	fi
 }
 
+function _check_nslookup_address
+{
+	# input arg: name
+	# output: 0=true (name resolvable); 1=false (name not found)
+	nslookup "$1" > /tmp/_check_nslookup_address.txt 2>&1
+	grep -q "^Address:" /tmp/_check_nslookup_address.txt && return 0
+	return 1
+}
+
 function _check_local_lan_failover_allowed
 {
 	LocalLanFailoverAllowedDefined=$(grep ^local_lan_failover_allowed $PKGnameConf | awk '{print $2}' | tr '[A-Z]' '[a-z]')
@@ -1353,8 +1362,10 @@ function _check_nfs_xfs
 			_note "Compare root=$accesslistroot for $expdir with the \rw=\" line in ${PKGname}.conf"
 		fi
 		_debug "Access list ro part: $accesslistro"
-		if [[ "$accesslistro" = "$PKGname" ]]; then
-			_print 3 "**" "The XFS access list \"ro=$PKGname\" is correct" ; _ok
+		# now check if $accesslistro is resolvable via nslookup
+		_check_nslookup_address $accesslistro
+		if [[ $? -eq 0 ]]; then
+			_print 3 "**" "The XFS access list \"ro=$accesslistro\" is correct" ; _ok
 		else
 			_print 3 "==" "The XFS access list \"ro=$accesslistro\" is not correct" ; _nok
 			_note "Use \"ro=$PKGname\" for XFS access list of $expdir"
@@ -1673,5 +1684,5 @@ echo "	Log file is saved as $instlog"
 # cleanup
 #
 rm -f /tmp/ERRcode.sgesap
-rm -f /tmp/HANFS-TOOLKIT-not-present
+rm -f /tmp/HANFS-TOOLKIT-not-present /tmp/_check_nslookup_address.txt
 # The END
