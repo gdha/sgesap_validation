@@ -685,7 +685,7 @@ function _check_user_name
 	fi
 
 	if [[ $count_username -eq 0 ]]; then
-		_print 3 "==" "No user_name was defined. Perhaps this was on purpose, maybe not - pls verify"; _nok
+		_print 3 "==" "No user_name was defined. Perhaps this was on purpose, maybe not - pls verify"; _warn
 		return
 	fi
 
@@ -754,13 +754,24 @@ function _check_vg
 
 function _check_fs_lines
 {
-	typeset -i i
-	i=$(grep ^"fs_" $PKGnameConf | wc -l)
-	_debug "Total Amount of fs_ lines in ${PKGname}.conf is $i (must be even)"
-	if (( $((i%2)) )) ; then
-		_print 3 "==" "Total amount of fs_ lines ($i) in ${PKGname}.conf must be even"; _nok
+	typeset -i i j
+	i=$(grep ^"fs_" $PKGnameConf | grep -v count | wc -l)
+	j=$(grep ^"fs_name" $PKGnameConf | wc -l)
+	if (( $((j%2)) )) ; then
+		amount_is="odd"
 	else
-		_print 3 "**" "Total amount of fs_ lines ($i) in ${PKGname}.conf must be even"; _ok
+		amount_is="even"
+	fi
+	_debug "Total Amount of fs_ lines in ${PKGname}.conf is $i (must be $amount_is)"
+	if (( $((i%2)) )) ; then
+		i_is="odd"
+	else
+		i_is="even"
+	fi
+	if [[ "$i_is" = "$amount_is" ]]; then
+		_print 3 "**" "Total amount of fs_ lines ($i) in ${PKGname}.conf must be $amount_is"; _ok
+	else
+		_print 3 "==" "Total amount of fs_ lines ($i) in ${PKGname}.conf must be $amount_is"; _nok
 	fi
 }
 
@@ -845,7 +856,7 @@ function _check_fs_directory
 function _check_sap_modules
 {
 	set -A SGeSAP
-	typeset -i count i
+	typeset -i count i j
 	i=1
 	grep "^module_name" $PKGnameConf | awk '{print $2}' | grep "sgesap" | cut -d"/" -f2 | while read SGeSAP[$i]
 	do
@@ -901,9 +912,19 @@ function _check_db_system
 	fi
 	# $DbSystemDefined contains the <SID> in uppercase
 	sid=$(echo $DbSystemDefined | tr 'A-Z' 'a-z')	# lowercase <sid>
+	if [[ -d "/usr/sap/$DbSystemDefined" ]]; then
+		_print 3 "**" "Found directory /usr/sap/$DbSystemDefined" ; _ok
+	else
+		_print 3 "==" "Missing directory /usr/sap/$DbSystemDefined" ; _nok
+	fi
 	orasid="ora${sid}"
 	sidadm="${sid}adm"
-	# check home-dir of $orasid in /etc/passwd file
+	# check home-dir of $orasid in /etc/passwd file (only required if pkg is DB)
+	# function _check_pkg_contains_database checks if pkg is containing a DB (oracle)
+	_check_pkg_contains_database ${PKGname} || return
+
+	[[ "${orasid}" = "UNKNOWN" ]] && return
+
 	homedir=$(grep ^${orasid} /etc/passwd | cut -d: -f6)
 	if [[ -z "$homedir" ]]; then
 		_print 3 "==" "User ${orasid} not known on this node" ; _nok
@@ -914,9 +935,24 @@ function _check_db_system
 	fi
 }
 
+function _check_pkg_contains_database
+{
+	# function to verify if current package is DB related or not
+	# input argument: package_name; output:0 (true) or 1 (false)
+	echo "$1" | tr 'A-Z' 'a-z' | grep -q -E '(db|ora)'
+	if [[ $? -eq 0 ]]; then	
+		_debug "_check_pkg_contains_database function: package $1 is a database package"
+		return 0
+	else
+		_debug "_check_pkg_contains_database function: package $1 is NOT a database package"
+		return 1
+	fi
+}
+
 function _check_sidadm_homedir
 {
 	# check home-dir of $sidadm 
+	[[ "$sidadm" = "UNKNOWN" ]] && return
 	homedir=$(grep ^${sidadm} /etc/passwd | cut -d: -f6)
 	if [[ -z "$homedir" ]]; then
 		_print 3 "==" "User ${sidadm} not known on this node" ; _nok
@@ -927,9 +963,10 @@ function _check_sidadm_homedir
 
 function _check_startdb_log_ownership
 {
+	[[ "$sidadm" = "UNKNOWN" ]] && return
 	homedir=$(grep ^${sidadm} /etc/passwd | cut -d: -f6)
 	# all start*.log files must be owned by ${sidadm} - we will catch not valid user in $owner
-	owner=$( ls -l $homedir/start*.log | awk '{print $3}' | sort -u | grep -v ${sidadm} | tail -1 )
+	owner=$( ls -l $homedir/start*.log 2>/dev/null | awk '{print $3}' | sort -u | grep -v ${sidadm} | tail -1 )
 	# owner should be an empty var (if all log files were owned by ${sidadm})
 	if [[ ! -z "$owner" ]]; then
 		_print 3 "==" "One or more start\*log files are owned by user $owner (should be ${sidadm})" ; _nok
@@ -940,9 +977,10 @@ function _check_startdb_log_ownership
 
 function _check_stopdb_log_ownership
 {
+	[[ "$orasid" = "UNKNOWN" ]] && return
 	homedir=$(grep ^${sidadm} /etc/passwd | cut -d: -f6)
 	# all start*.log files must be owned by ${sidadm} - we will catch not valid user in $owner
-	owner=$( ls -l $homedir/stop*.log | awk '{print $3}' | sort -u | grep -v ${sidadm} | tail -1 )
+	owner=$( ls -l $homedir/stop*.log 2>/dev/null | awk '{print $3}' | sort -u | grep -v ${sidadm} | tail -1 )
 	# owner should be an empty var (if all log files were owned by ${sidadm})
 	if [[ ! -z "$owner" ]]; then
 		_print 3 "==" "One or more stop\*log files are owned by user $owner (should be ${sidadm})" ; _nok
@@ -976,6 +1014,9 @@ function _check_orasid_homedir
 function _check_authorized_keys
 {
 	# check if var $1 (orasid or sidadm) homedir contains .ssh directory
+	# be careful only required if pkg is a DB one
+	_check_pkg_contains_database ${PKGname} || return
+
 	homedir=$(grep ^${1} /etc/passwd | cut -d: -f6)
 	if [[ ! -d ${homedir}/.ssh ]]; then
 		_print 3 "==" "Directory ${homedir}/.ssh does not exist" ; _nok
@@ -1082,8 +1123,11 @@ function _check_sap_system
 	elif [[ "$SapSystemDefined" = "$DbSystemDefined" ]]; then
 		_print 3 "**" "sgesap/sap_global/sap_system $SapSystemDefined" ; _ok
 	else
-		[[ -z "$DbSystemDefined" ]] && DbSystemDefined="<SID>"
-		_print 3 "==" "sgesap/sap_global/sap_system $SapSystemDefined (should be $DbSystemDefined)"; _nok
+		if [[ -z "$DbSystemDefined" ]]; then
+			_print 3 "**" "sgesap/sap_global/sap_system $SapSystemDefined (ers package?)" ; _ok
+		else
+			_print 3 "==" "sgesap/sap_global/sap_system $SapSystemDefined (should be $DbSystemDefined)"; _nok
+		fi
 	fi
 }
 
@@ -1517,10 +1561,11 @@ function _check_dfstab
 {
 	# check if we did not foresee a manual share in /etc/dfs/dfstab
 	[[ "$DbSystemDefined" = "<SID>" ]] && return
+	[[ -z "$DbSystemDefined" ]] && return
 	grep "$DbSystemDefined" /etc/dfs/dfstab | grep -v "^\#" | while read Line
 	do
 		_print 3 "==" "Please move the following line into the ${PKGname}.conf (XFS line)" ; _nok
-		_note "Schedule exec: comment line - $Line"
+		_note "Schedule exec: move out /etc/fstab - $Line"
 	done
 }
 
@@ -1613,9 +1658,9 @@ fi
 		_check_orasid_homedir
 		_check_sidadm_homedir
 		##_check_ora_authorized_keys  (2 following lines replace this function)
-		[[ ! -z "${orasid}" ]] && _check_authorized_keys ${orasid}
-		[[ ! -z "${sidadm}" ]] && _check_authorized_keys ${sidadm}
-		# function to check sidadm startdb.log ownership (if root is owner SAP will not start)
+		[[ "${orasid}" != "UNKNOWN" ]] && _check_authorized_keys ${orasid}
+		[[ "${sidadm}" != "UNKNOWN" ]] && _check_authorized_keys ${sidadm}
+		# function to check sidadm startdb.log ownership (if root is owner then SAP will not start)
 		_check_startdb_log_ownership
 		_check_stopdb_log_ownership
 		_check_sapms_service
