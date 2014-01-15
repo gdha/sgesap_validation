@@ -1019,7 +1019,7 @@ function _check_authorized_keys
 
 	homedir=$(grep ^${1} /etc/passwd | cut -d: -f6)
 	if [[ ! -d ${homedir}/.ssh ]]; then
-		_print 3 "==" "Directory ${homedir}/.ssh does not exist" ; _nok
+		_print 3 "==" "Directory ${homedir}/.ssh does not exist" ; _warn
 		return  # nothing further to check if ~/.ssh does not exist
 	else
 		_debug "Found ${homedir}/.ssh"
@@ -1040,7 +1040,7 @@ function _check_authorized_keys
 
 	# check if ~/.ssh/authorized_keys exists
 	if [[ ! -f ${homedir}/.ssh/authorized_keys ]]; then
-		_print 3 "==" "SSH file ${homedir}/.ssh/authorized_keys not found" ; _nok
+		_print 3 "==" "SSH file ${homedir}/.ssh/authorized_keys not found" ; _warn
 	else
 		_debug "SSH file ${homedir}/.ssh/authorized_keys found"
 	fi
@@ -1049,9 +1049,8 @@ function _check_authorized_keys
 function _check_ora_authorized_keys
 {
 	### obsolete function ###
-	# this is check only required when working with AFRAX (EMEA only?)
 	# the SGS user keys are created on host basis and cannot cope with a virtual hostname
-	# therefore, we keys the keys for each orasid in /home/orasid/.ssh/authorized_keys file
+	# therefore, we keep the keys for each orasid in /home/orasid/.ssh/authorized_keys file
 	adinfo --zone | grep -q EU || return # non-EU zone; just return
 	
 	[[ -z "${orasid}" ]] && return		# no SID defined
@@ -1233,7 +1232,7 @@ function _check_sapms_service
 		SapmsServiceDefined=$(cmdo -n $NODE -t 10 grep "^sapms${DbSystemDefined}[[:blank:]]" /etc/services | grep -v "^\#" | awk '{print $2}')
 		_debug "Checking /etc/services for sapms${DbSystemDefined}"
 		if [[ -z "$SapmsServiceDefined" ]]; then
-			_print 3 "==" "No entry found (of sapms${DbSystemDefined}) in /etc/services on node $NODE" ; _nok
+			_print 3 "==" "No entry found (of sapms${DbSystemDefined}) in /etc/services on node $NODE" ; _warn
 		else
 			_print 3 "**" "Found entry $SapmsServiceDefined in /etc/services on node $NODE" ; _ok
 		fi
@@ -1569,9 +1568,27 @@ function _check_dfstab
 	done
 }
 
+function _check_node_enablement
+{
+	cmviewcl -f line -vp ${PKGname} > /tmp/_check_node_enablement.txt 2>&1
+	grep  -E 'switching' /tmp/_check_node_enablement.txt | while read Line
+	do
+		echo $Line | grep -q "disabled" 
+		if [[ $? -eq 0 ]]; then
+			# disabled
+			_print 3 "==" "Node enablement: $Line" ; _warn
+		else
+			_print 3 "**" "Node enablement: $Line" ; _ok
+		fi
+	done
+	rm -f /tmp/_check_node_enablement.txt
+}
+
+#########################################################################################################
 #
 # MAIN
 #
+#########################################################################################################
 while [ $# -gt 0 ]; do
 	case "$1" in
 		-d) DEBUG=1		# turn debugging on
@@ -1619,6 +1636,15 @@ fi
 		 _print 3 "**" "Executing cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)"
 		cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y) && _ok || _nok
 		PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)
+		if [[ ! -s $PKGnameConf ]]; then
+			# cmgetconf failed and config file is empty
+			_note "Switching back to $SGCONF/${PKGname}/${PKGname}.conf as failback procedure!"
+			PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf
+			rm -f $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)
+		else
+			# ok cmgetconf was successful - pkg is up and running - check node enablement
+			_check_node_enablement
+		fi
 	fi
 	_check_package_defined_in_hosts_file
 	_check_package_description
@@ -1728,6 +1754,7 @@ echo "	Log file is saved as $instlog"
 #
 # cleanup
 #
-rm -f /tmp/ERRcode.sgesap
+rm -f /tmp/ERRcode.sgesap /tmp/isPkgRunning.txt
 rm -f /tmp/HANFS-TOOLKIT-not-present /tmp/_check_nslookup_address.txt
 # The END
+exit $ERRcode
