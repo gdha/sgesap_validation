@@ -29,7 +29,8 @@ typeset -r platform=$(uname -s)                         # Platform
 typeset -r model=$(uname -m)                            # Model
 typeset -r HOSTNAME=$(uname -n)                         # hostname
 typeset os=$(uname -r); os=${os#B.}                     # e.g. 11.31
-typeset -r dlog=/var/adm/install-logs
+#typeset -r dlog=/var/adm/install-logs
+typeset -r dlog=/var/tmp
 typeset instlog=$dlog/${PRGNAME%???}-$(date '+%Y%m%d-%H%M').scriptlog          # log file
 # specific parameter for this script
 typeset -x EXITCODE=0                                   # the exitcode variable to keep track of the #errors
@@ -39,10 +40,13 @@ typeset -x PKGname=""					# empty by default
 typeset -x PKGnameConf=""				# empty by default
 typeset -x TestSGeSAP=1					# Test the Serviceguard SGeSAP extention in the conf
 							# (by default we test SGeSAP stuff too) - use -s to turn off
+typeset -x MONITORMODE=0				# by default do not run in monitor mode (use -m flag)
 
+########################################################################################################################
 #
 # Functions
 #
+########################################################################################################################
 
 function _echo
 {
@@ -145,7 +149,6 @@ function _banner
 	$(_print 22 "Host:" "$HOSTNAME")
 	$(_print 22 "User:" "$(whoami)")
 	$(_print 22 "Date:" "$(date +'%Y-%m-%d @ %H:%M:%S')")
-	$(_print 22 "Log:" "$instlog")
 	$(_line "#")
 	EOD
 }
@@ -203,8 +206,9 @@ function _show_help_sgesap_validation
 	Usage: $PRGNAME [-d] [-s] [-h] [-f] package_name
 
 	-d:	Enable debug mode (by default off)
-	-s:	Disable SGeSAP tetsing in package configuration file
+	-s:	Disable SGeSAP testing in package configuration file
 	-f:	Force the read the local package_name.conf file instead of the one from cmgetconf
+	-m:	Monitor mode (less output) shows only warnings and failed lines
 	-h:	Show usage [this page]
 
 	end-of-text
@@ -244,9 +248,9 @@ function _validCluster
 	echo $out | grep -q up
 	rc=$?
 	if [[ $rc -eq 0 ]]; then
-		_print 3 "**" "A valid cluster found, which is running" ; _ok
-		_print 3 " "  "$out"
-		printf "\n"	# to have a proper linefeed
+		_print 3 "**" "A valid cluster $(echo $out | awk '{print $1}') found, which is running (up)" ; _ok
+		#_print 3 " "  "$out"
+		#printf "\n"	# to have a proper linefeed
 	else
 		_error "Cluster is not up or not configured (yet)"
 	fi
@@ -1600,6 +1604,9 @@ while [ $# -gt 0 ]; do
 		-h) _show_help_${PRGNAME%.*}
 		    exit 1
 		    ;;
+		-m) MONITORMODE=1
+		    shift 1
+		    ;;
                 -f) READLOCALCONFFILE=1
 		    shift 1
 		    ;;
@@ -1620,7 +1627,7 @@ fi
 
 { # start of MAIN body (everything will be logged)
 	[[ -z "$SGCONF" ]] && SGCONF=/etc/cmcluster
-	_banner "Test the consistency of serviceguard (SGeSAP) configuration script"
+	[[ $MONITORMODE -eq 0 ]] && _banner "Test the consistency of serviceguard (SGeSAP) configuration script"
 	_validOS
 	_validSG
 	_validSGeSAP
@@ -1727,34 +1734,49 @@ fi
 	#_compare_conf_files
 
 	echo $ERRcode > /tmp/ERRcode.sgesap
-}  2>&1 | tee $instlog # tee is used in case of interactive run
+}  2>&1 > $instlog # tee is used in case of interactive run
+##}  2>&1 | tee $instlog # tee is used in case of interactive run
+
+if [[ $MONITORMODE -eq 0 ]]; then
+	cat $instlog
+else
+	grep -v -E '( OK |SKIP)' $instlog
+fi
 
 PKGnameConf="$SGCONF/${PKGname}/${PKGname}.conf"
 
 # check error count
 [ ! -f /tmp/ERRcode.sgesap ] && exit	# no pkgname given probably
 ERRcode=$(cat /tmp/ERRcode.sgesap)
-if [[ $ERRcode -eq 0 ]]; then
+
+if [[ $MONITORMODE -eq 0 ]]; then
+    # interactive (no monitor mode)
+    if [[ $ERRcode -eq 0 ]]; then
 	echo "
 	*************************************************************************
 	  No errors were found in $PKGnameConf
 	  Run \"cmcheckconf -v -P $PKGnameConf\"
 	  followed by \"cmapplyconf -v -P $PKGnameConf\"
-	*************************************************************************"
-else
+	*************************************************************************" | tee -a $instlog
+    else
 	echo "
 	*************************************************************************
 	  There were $ERRcode error(s) found in $PKGnameConf
 	  Please correct these first and rerun $PRGNAME
-	*************************************************************************"
+	*************************************************************************" | tee -a $instlog
+    fi
 fi
 
-echo "	Log file is saved as $instlog"
+# the log file name becomes:
+LOGFILE=$dlog/${PRGNAME%???}-$PKGname-$(date '+%Y%m%d-%H%M').log
+mv -f $instlog $LOGFILE
+
+echo "	Log file for $PKGname is saved as $LOGFILE" | tee -a $LOGFILE
 
 #
 # cleanup
 #
 rm -f /tmp/ERRcode.sgesap /tmp/isPkgRunning.txt
 rm -f /tmp/HANFS-TOOLKIT-not-present /tmp/_check_nslookup_address.txt
-# The END
+# The END - the exit code will be picked up by monitor script
 exit $ERRcode
