@@ -33,7 +33,6 @@ typeset os=$(uname -r); os=${os#B.}                     # e.g. 11.31
 typeset -r dlog=/var/tmp
 typeset instlog=$dlog/${PRGNAME%???}-$(date '+%Y%m%d-%H%M').scriptlog          # log file
 # specific parameter for this script
-typeset -x EXITCODE=0                                   # the exitcode variable to keep track of the #errors
 typeset -x ERRcode=0					
 typeset -x DEBUG=                                       # by default no debugging enabled (use -d to do so)
 typeset -x PKGname=""					# empty by default
@@ -1644,14 +1643,15 @@ fi
 	_isPkgRunning
 	# when package is running download the configuration instead of using an older config file
 	if [[ -z "$READLOCALCONFFILE" ]] && [[ $ForceCMGETCONF -eq 1 ]]; then
-		 _print 3 "**" "Executing cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)"
-		cmgetconf -p $PKGname > $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y) && _ok || _nok
-		PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)
+		# we will save our temp. config file in /var/tmp (these will cleaned up automatically)
+		 _print 3 "**" "Executing cmgetconf -p $PKGname > /var/tmp/${PKGname}.conf.$(date +%d%b%Y)"
+		cmgetconf -p $PKGname > /var/tmp/${PKGname}.conf.$(date +%d%b%Y) && _ok || _nok
+		PKGnameConf=/var/tmp/${PKGname}.conf.$(date +%d%b%Y)
 		if [[ ! -s $PKGnameConf ]]; then
 			# cmgetconf failed and config file is empty
 			_note "Switching back to $SGCONF/${PKGname}/${PKGname}.conf as failback procedure!"
 			PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf
-			rm -f $SGCONF/${PKGname}/${PKGname}.conf.$(date +%d%b%Y)
+			rm -f /var/tmp/${PKGname}.conf.$(date +%d%b%Y)
 		else
 			# ok cmgetconf was successful - pkg is up and running - check node enablement
 			_check_node_enablement

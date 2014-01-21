@@ -111,38 +111,45 @@ do
 	case $pkg in
 	   *db*|*DB*)
 		$SGESAP_VAL_SCRIPT -m $pkg
-		rc=$((rc + $?))
+		echo "$(date '+%d-%m-%Y %H:%M:%S') Amount of error(s) found in $pkg is $?"
+		#rc=$((rc + $?))
 		;;
 	   *)	$SGESAP_VAL_SCRIPT -m -s $pkg
-		rc=$((rc + $?))
+		echo "$(date '+%d-%m-%Y %H:%M:%S') Amount of error(s) found in $pkg is $?"
+		#rc=$((rc + $?))
 		;;
 	esac
 	_line "="
 done
 
-echo "$(date '+%d-%m-%Y %H:%M:%S') Total amount of errors is $rc"
+#echo "$(date '+%d-%m-%Y %H:%M:%S') Total amount of errors is $rc"
 } 2>&1 | tee $LOGFILE
 
-cp $LOGFILE $COPYLOGFILE
-chmod 644 $COPYLOGFILE
 
-# grab the error code from the logfile (arg8 is rc code)
-## last line looks like: 16-01-2014 14:33:16 Total amount of errors is 78
-rc=$( grep "Total amount of" $LOGFILE | awk '{print $8}' )
+# count the amount of FAILED lines
+ERRORS=$( grep FAILED $LOGFILE | wc -l )
 CLUSTER=$( grep Cluster $LOGFILE | awk '{print $4}' )
-if [[ $rc -gt 0 ]]; then
-
-	msg="ERROR: found errors in package configurations of cluster $CLUSTER (rc=$rc)"
+if [[ $ERRORS -gt 0 ]]; then
+	rc=1
+	msg="ERROR: found $ERRORS error(s) in package configurations of cluster $CLUSTER (rc=$rc)"
 	severity="Major"
 	object=$LOGFILE
-	do_opcmsg
-
+	do_opcmsg | tee -a $LOGFILE
+	echo "$(date '+%d-%m-%Y %H:%M:%S') Total amount of error(s) found is $ERRORS" | tee -a $LOGFILE
+else
+	echo "$(date '+%d-%m-%Y %H:%M:%S') No errors were found (rc=$rc)" | tee -a $LOGFILE
 fi
 
 echo
-echo "A copy of this logfile is saved as $COPYLOGFILE"
+_line "+" | tee -a $LOGFILE
+echo "$(date '+%d-%m-%Y %H:%M:%S') A copy of this logfile is saved as $COPYLOGFILE" | tee -a $LOGFILE
+_line "+" | tee -a $LOGFILE
+
+cp $LOGFILE $COPYLOGFILE
+chmod 644 $COPYLOGFILE
 
 ###
 ### cleanup and exit
 ###
 rm -f $TMPFILE
+exit $rc
