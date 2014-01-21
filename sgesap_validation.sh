@@ -557,7 +557,7 @@ function _check_enable_threaded_vgchange
 	elif [[ $EnableThreadedVgchangeDefined -eq 1 ]]; then
 		 _print 3 "**" "Found enable_threaded_vgchange ($EnableThreadedVgchangeDefined) in ${PKGname}.conf" ; _ok
 	else
-		_print 3 "**" "Found enable_threaded_vgchange ($EnableThreadedVgchangeDefined) in ${PKGname}.conf (use \"1\")" ; _nok
+		_print 3 "**" "Found enable_threaded_vgchange ($EnableThreadedVgchangeDefined) in ${PKGname}.conf (use \"1\")" ; _warn
 	fi
 
 }
@@ -572,7 +572,7 @@ function _check_concurrent_vgchange_operations
 
 	i=$(_isnum $ConcurrentVgchangeOperationsDefined)	# if string i=0, otherwise i=ConcurrentVgchangeOperationsDefined
 	if [[ $ConcurrentVgchangeOperationsDefined -lt 2 ]]; then
-		_print 3 "**" "Found concurrent_vgchange_operations ($ConcurrentVgchangeOperationsDefined) in ${PKGname}.conf (use \"2\")" ; _nok
+		_print 3 "**" "Found concurrent_vgchange_operations ($ConcurrentVgchangeOperationsDefined) in ${PKGname}.conf (use \"2\")" ; _warn
 	else
 		_print 3 "**" "Found concurrent_vgchange_operations ($ConcurrentVgchangeOperationsDefined) in ${PKGname}.conf" ; _ok
 	fi
@@ -588,7 +588,7 @@ function _check_fs_umount_retry_count
 
 	i=$(_isnum $FsUmountRetryCountDefined)
 	if [[ $FsUmountRetryCountDefined -lt 3 ]]; then
-		_print 3 "**" "Found fs_umount_retry_count ($FsUmountRetryCountDefined) in ${PKGname}.conf (use \"3\")" ; _nok
+		_print 3 "**" "Found fs_umount_retry_count ($FsUmountRetryCountDefined) in ${PKGname}.conf (use \"3\")" ; _warn
 	else
 		_print 3 "**" "Found fs_umount_retry_count ($FsUmountRetryCountDefined) in ${PKGname}.conf" ; _ok
 	fi
@@ -603,8 +603,9 @@ function _check_fs_mount_retry_count
 	fi
 
 	i=$(_isnum $FsMountRetryCountDefined)
-	if [[ $FsMountRetryCountDefined -lt 3 ]]; then
-		_print 3 "**" "Found fs_mount_retry_count ($FsMountRetryCountDefined) in ${PKGname}.conf (use \"3\")" ; _nok
+	##if [[ $FsMountRetryCountDefined -lt 3 ]]; then   #original standard
+	if [[ $FsMountRetryCountDefined -gt 0 ]]; then     #after discussions with HP
+		_print 3 "**" "Found fs_mount_retry_count ($FsMountRetryCountDefined) in ${PKGname}.conf (use \"0\")" ; _warn
 	else
 		_print 3 "**" "Found fs_mount_retry_count ($FsMountRetryCountDefined) in ${PKGname}.conf" ; _ok
 	fi
@@ -620,7 +621,7 @@ function _check_concurrent_mount_and_umount_operations
 
 	i=$(_isnum $ConcurrentMountAndUmountOperationsDefined)
 	if [[ $ConcurrentMountAndUmountOperationsDefined -lt 3 ]]; then
-		_print 3 "**" "Found concurrent_mount_and_umount_operations ($ConcurrentMountAndUmountOperationsDefined) in ${PKGname}.conf (use \"3\")" ; _nok
+		_print 3 "**" "Found concurrent_mount_and_umount_operations ($ConcurrentMountAndUmountOperationsDefined) in ${PKGname}.conf (use \"3\")" ; _warn
 	else
 		_print 3 "**" "Found concurrent_mount_and_umount_operations ($ConcurrentMountAndUmountOperationsDefined) in ${PKGname}.conf" ; _ok
 	fi
@@ -636,7 +637,7 @@ function _check_concurrent_fsck_operations
 
 	i=$(_isnum $ConcurrentFsckOperationsDefined)
 	if [[ $ConcurrentFsckOperationsDefined -lt 3 ]]; then
-		_print 3 "**" "Found concurrent_fsck_operations ($ConcurrentFsckOperationsDefined) in ${PKGname}.conf (use \"3\")" ; _nok
+		_print 3 "**" "Found concurrent_fsck_operations ($ConcurrentFsckOperationsDefined) in ${PKGname}.conf (use \"3\")" ; _warn
 	else
 		_print 3 "**" "Found concurrent_fsck_operations ($ConcurrentFsckOperationsDefined) in ${PKGname}.conf" ; _ok
 	fi
@@ -1160,13 +1161,16 @@ function _check_cleanup_policy
 
 function _check_retry_count
 {
+	# originally we used 5 as a good setting, however, according
+	# http://h10025.www1.hp.com/ewfrf/wc/document?cc=us&lc=en&docname=c03774137
+	# 15 is much better
 	RetryCountDefined=$(grep "^sgesap/sap_global/retry_count" $PKGnameConf | awk '{print $2}')
 	if [[ -z "$RetryCountDefined" ]]; then
-		_print 3 "==" "sgesap/sap_global/retry_count not defined in ${PKGname}.conf (define \"5\")" ; _nok
-	elif [[ "$RetryCountDefined" = "5" ]]; then
+		_print 3 "==" "sgesap/sap_global/retry_count not defined in ${PKGname}.conf (define \"15\")" ; _nok
+	elif [[ "$RetryCountDefined" = "15" ]]; then
 		_print 3 "**" "sgesap/sap_global/retry_count $RetryCountDefined" ; _ok
 	else
-		_print 3 "==" "sgesap/sap_global/retry_count $RetryCountDefined (define \"5\")" ; _nok
+		_print 3 "==" "sgesap/sap_global/retry_count $RetryCountDefined (define \"15\")" ; _warn
 	fi
 }
 
@@ -1267,11 +1271,11 @@ function _check_nfs_supported_netids
 {
 	NfsSupportedNetids=$(grep "^nfs/hanfs_export/SUPPORTED_NETIDS" $PKGnameConf | awk '{print $2}' | tr 'A-Z' 'a-z')
 	if [[ -z "$NfsSupportedNetids" ]]; then
-		_print 3 "==" "Missing nfs/hanfs_export/SUPPORTED_NETIDS in ${PKGname}.conf (use \"tcp\")" ; _nok
+		_print 3 "==" "Missing nfs/hanfs_export/SUPPORTED_NETIDS in ${PKGname}.conf (default is \"udp\")" ; _warn
 	elif [[ "$NfsSupportedNetids" = "udp" ]]; then
-		_print 3 "==" "nfs/hanfs_export/SUPPORTED_NETIDS $NfsSupportedNetids (should be \"tcp\")" ; _ok
+		_print 3 "==" "nfs/hanfs_export/SUPPORTED_NETIDS $NfsSupportedNetids (prefer \"tcp\")" ; _ok
 	elif [[ "$NfsSupportedNetids" = "tcp" ]]; then
-		_print 3 "**" "nfs/hanfs_export/SUPPORTED_NETIDS $NfsSupportedNetids" ; _ok
+		_print 3 "**" "nfs/hanfs_export/SUPPORTED_NETIDS $NfsSupportedNetids (set to \"tcp\")" ; _ok
 	else
 		# FIXME: what about other udp6/tcp6?
 		_print 3 "==" "nfs/hanfs_export/SUPPORTED_NETIDS $NfsSupportedNetids (should be \"tcp\")" ; _nok
@@ -1282,11 +1286,11 @@ function _check_file_lock_migration
 {
 	FileLockMigrationDefined=$(grep "^nfs/hanfs_export/FILE_LOCK_MIGRATION" $PKGnameConf | awk '{print $2}')
 	if [[ -z "$FileLockMigrationDefined" ]]; then
-		_print 3 "==" "Missing nfs/hanfs_export/FILE_LOCK_MIGRATION in ${PKGname}.conf (use \"1\")" ; _nok
+		_print 3 "==" "Missing nfs/hanfs_export/FILE_LOCK_MIGRATION in ${PKGname}.conf (use \"1\")" ; _warn
 	elif [[ $FileLockMigrationDefined -eq 1 ]]; then
 		_print 3 "**" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined" ; _ok
 	else
-		_print 3 "==" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined (use \"1\")" ; _nok
+		_print 3 "==" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined (use \"1\")" ; _warn
 	fi
 }
 
@@ -1294,7 +1298,7 @@ function _check_flm_holding_dir
 {
 	FlmHoldingDir=$(grep "^nfs/hanfs_flm/FLM_HOLDING_DIR" $PKGnameConf | awk '{print $2}' | sed -e 's/"//g')
 	if [[ -z "$FlmHoldingDir" ]]; then
-		_print 3 "==" "Missing nfs/hanfs_flm/FLM_HOLDING_DIR in ${PKGname}.conf (use /export/sapmnt/${DbSystemDefined}/nfs_flm" ; _nok
+		_print 3 "==" "Missing nfs/hanfs_flm/FLM_HOLDING_DIR in ${PKGname}.conf (use /export/sapmnt/${DbSystemDefined}/nfs_flm)" ; _warn
 	elif [[ ! -d $FlmHoldingDir ]]; then
 		_print 3 "==" "nfs/hanfs_flm/FLM_HOLDING_DIR $FlmHoldingDir (directory not found!)" ; _nok
 	else
