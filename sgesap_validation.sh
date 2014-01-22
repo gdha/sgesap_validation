@@ -1002,6 +1002,10 @@ function _check_orasid_homedir
 	homedir=$(grep ^${orasid} /etc/passwd | cut -d: -f6)
 	# cmdo is required as we do not know where the package is active and the extra " " after homedir is a must
 	VG=$( cmdo mount -v | grep "${homedir} " | awk '{print $1}' | cut -d"/" -f3 )
+	if [[ -z "$VG" ]]; then
+		_debug "Home directory of ${orasid} is not mounted (DT Cluster node perhaps)?"
+		return
+	fi
 	if [[ ! -c /dev/$VG/group ]]; then
 		_print 3 "==" "Volume group $VG is unknown on this system ($lhost)" ; _nok
 		_note "Schedule exec: vgexport (preview mode) and vgimport VG $VG"

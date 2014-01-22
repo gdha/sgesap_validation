@@ -17,6 +17,7 @@ typeset -x PRGDIR=$(dirname $0)                         # This script directory 
 		* ) PRGDIR=$(pwd)/$PRGDIR ;;
 	esac
 	}
+
 typeset -x ARGS="$@"                                    # the script arguments
 [[ -z "$ARGS" ]] && ARGS="(empty)"                      # is used in the header
 typeset -x PATH=/usr/local/CPR/bin:/sbin:/usr/sbin:/usr/bin:/usr/xpg4/bin:$PATH:/usr/ucb:.
@@ -29,6 +30,7 @@ typeset -r TMPFILE=/tmp/sgesap_validation_wrapper.$$
 typeset -r LOGFILE=/var/adm/log/package-validation-monitoring-results.log
 typeset -r COPYLOGFILE=/var/tmp/${PRGNAME%???}-$(date '+%Y%m%d-%H%M').log
 typeset    ovocmd=/opt/OV/bin/OpC/opcmsg
+typeset	   mailto="gdhaese1@its.jnj.com"
 typeset    rc=0
 
 #
@@ -90,6 +92,11 @@ function do_opcmsg {
 	echo $ovocmd severity=$severity msg_grp=Applications msg_text="\"${msg}\"" a="Package Validation" object=$object -option SCRIPT=$PRGNAME
 }
 
+function _mail {
+	[ -s "$LOGFILE" ] || LOGFILE=/dev/null
+	mailx -s "$*" $mailto < "$LOGFILE"
+}
+
 ###
 ### MAIN
 ###
@@ -147,6 +154,8 @@ _line "+" | tee -a $LOGFILE
 
 cp $LOGFILE $COPYLOGFILE
 chmod 644 $COPYLOGFILE
+
+_mail "Results of package configuration  validation on cluster $CLUSTER (rc=$rc)"
 
 ###
 ### cleanup and exit
