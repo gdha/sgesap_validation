@@ -12,7 +12,6 @@
 #
 # Parameters
 #
-# general parameter
 PS4='$LINENO:=> ' # This prompt will be used when script tracing is turned on
 typeset -x PRGNAME=${0##*/}                             # This script short name
 typeset -x PRGDIR=$(dirname $0)                         # This script directory name
@@ -22,6 +21,7 @@ typeset -x PRGDIR=$(dirname $0)                         # This script directory 
 		* ) PRGDIR=$(pwd)/$PRGDIR ;;
 	esac
 	}
+
 typeset -x ARGS="$@"                                    # the script arguments
 [[ -z "$ARGS" ]] && ARGS="(empty)"			# is used in the header
 typeset -x PATH=/usr/local/CPR/bin:/sbin:/usr/sbin:/usr/bin:/usr/xpg4/bin:$PATH:/usr/ucb:.
@@ -29,10 +29,9 @@ typeset -r platform=$(uname -s)                         # Platform
 typeset -r model=$(uname -m)                            # Model
 typeset -r HOSTNAME=$(uname -n)                         # hostname
 typeset os=$(uname -r); os=${os#B.}                     # e.g. 11.31
-#typeset -r dlog=/var/adm/install-logs
 typeset -r dlog=/var/tmp
-typeset instlog=$dlog/${PRGNAME%???}-$(date '+%Y%m%d-%H%M').scriptlog          # log file
-# specific parameter for this script
+#typeset instlog=$dlog/${PRGNAME%???}-$(date '+%Y%m%d-%H%M').scriptlog          # log file
+typeset -x LOGFILE=					# will be set in the MAIN section
 typeset -x ERRcode=0					
 typeset -x DEBUG=                                       # by default no debugging enabled (use -d to do so)
 typeset -x PKGname=""					# empty by default
@@ -63,7 +62,10 @@ function _note
 function _error
 {
 	printf " *** ERROR: $* \n"
-	exit 1
+	if [[ -f $LOGFILE ]]; then
+		echo "  Log file for $PKGname is saved as $LOGFILE" >> $LOGFILE
+	fi
+	exit 255
 }
 
 function _warning
@@ -257,14 +259,18 @@ function _validCluster
 
 function _isPkgRunning
 {
-	cmviewcl -fline -p $PackageNameDefined > /tmp/isPkgRunning.txt 2>&1
-	grep -q "is not a configured package name" /tmp/isPkgRunning.txt
-	if [[ $? -eq 0 ]]; then
+	# we use this function to determine if pkg is running or not (=new pkg)
+	#cmviewcl -f line -p $PackageNameDefined > /tmp/isPkgRunning.txt 2>&1
+	cmviewcl -f line | grep ^package | grep name= | cut -d= -f2 >/tmp/isPkgRunning.txt
+	PKGname_tmp=${PKGname##*/}       # if PKGname was a filename
+	PKGname_tmp=${PKGname_tmp%.*}    # remove .conf
+	grep -q "$PKGname_tmp" /tmp/isPkgRunning.txt
+	if [[ $? -ne 0 ]]; then
 		# pkg is not running
-		_print 3 "**" "Package $PackageNameDefined is \"not\" (yet) a configured package name" ; _warn
+		_print 3 "==" "Package $PKGname_tmp is \"not\" (yet) a configured package name" ; _warn
 		ForceCMGETCONF=0
 	else
-		_print 3 "**" "Package $PackageNameDefined is a configured package name (cluster $(cmviewcl -fline | grep ^name= | cut -d= -f2))" ; _ok
+		_print 3 "**" "Package $PKGname_tmp is a configured package name (cluster $(cmviewcl -fline | grep ^name= | cut -d= -f2))" ; _ok
 		ForceCMGETCONF=1
 	fi
 }
@@ -284,17 +290,18 @@ function _checkPKGname
 	if [[ $rc -eq 0 ]]; then
 		_print 3 "**" "Package directory ($PKGname_tmp) found under $SGCONF" ; _ok
 	else
-		_error "Package directory ($PKGname_tmp) does not exist"
+		_print 3 "==" "Package directory ($PKGname_tmp) does not exist on $HOSTNAME" ; _warn
 	fi
 }
 
 function _checkPKGnameConf
 {
-	PKGnameConf="$SGCONF/${PKGname}/${PKGname}.conf"
+	##PKGnameConf="$SGCONF/${PKGname}/${PKGname}.conf"
 	if [[ -f $PKGnameConf ]]; then
 		_print 3 "**" "Found configuration file $PKGnameConf" ; _ok
 	else
-		_error "Serviveguard package configuration file $PKGnameConf not found"
+		_print 3 "==" "Serviveguard package configuration file $PKGnameConf not found" ; _nok
+		_error "No package running (${PKGname}) nor did we find a $PKGnameConf file"
 	fi
 }
 
@@ -1632,6 +1639,12 @@ if [[ $? -eq 1 ]]; then
 	exit 1
 fi
 
+# define the proper LOGFILE before start logging
+PKGname_tmp=${PKGname##*/}       # if PKGname was a filename
+PKGname_tmp=${PKGname_tmp%.*}    # remove .conf
+LOGFILE=$dlog/${PRGNAME%???}-${PKGname_tmp}-$(date '+%Y%m%d-%H%M').log
+echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
+
 { # start of MAIN body (everything will be logged)
 	[[ -z "$SGCONF" ]] && SGCONF=/etc/cmcluster
 	[[ $MONITORMODE -eq 0 ]] && _banner "Test the consistency of serviceguard (SGeSAP) configuration script"
@@ -1640,11 +1653,9 @@ fi
 	_validSGeSAP
 	_validCluster
 	_checkPKGname
-	_checkPKGnameConf
+	_isPkgRunning
 
 	# checking general package parameters
-	_check_package_name
-	_isPkgRunning
 	# when package is running download the configuration instead of using an older config file
 	if [[ -z "$READLOCALCONFFILE" ]] && [[ $ForceCMGETCONF -eq 1 ]]; then
 		# we will save our temp. config file in /var/tmp (these will cleaned up automatically)
@@ -1661,6 +1672,8 @@ fi
 			_check_node_enablement
 		fi
 	fi
+	_checkPKGnameConf
+	_check_package_name
 	_check_package_defined_in_hosts_file
 	_check_package_description
 	_check_node_name
@@ -1742,13 +1755,13 @@ fi
 	#_compare_conf_files
 
 	echo $ERRcode > /tmp/ERRcode.sgesap
-}  2>&1 > $instlog # tee is used in case of interactive run
-##}  2>&1 | tee $instlog # tee is used in case of interactive run
+}  2>&1 > $LOGFILE
+##}  2>&1 | tee $LOGFILE # tee is used in case of interactive run
 
 if [[ $MONITORMODE -eq 0 ]]; then
-	cat $instlog
+	cat $LOGFILE
 else
-	grep -v -E '( OK |SKIP)' $instlog
+	grep -v -E '( OK |SKIP)' $LOGFILE
 fi
 
 PKGnameConf="$SGCONF/${PKGname}/${PKGname}.conf"
@@ -1765,21 +1778,21 @@ if [[ $MONITORMODE -eq 0 ]]; then
 	  No errors were found in $PKGnameConf
 	  Run \"cmcheckconf -v -P $PKGnameConf\"
 	  followed by \"cmapplyconf -v -P $PKGnameConf\"
-	*************************************************************************" | tee -a $instlog
+	*************************************************************************" | tee -a $LOGFILE
     else
 	echo "
 	*************************************************************************
 	  There were $ERRcode error(s) found in $PKGnameConf
 	  Please correct these first and rerun $PRGNAME
-	*************************************************************************" | tee -a $instlog
+	*************************************************************************" | tee -a $LOGFILE
     fi
 fi
 
-# the log file name becomes:
-LOGFILE=$dlog/${PRGNAME%???}-$PKGname-$(date '+%Y%m%d-%H%M').log
-mv -f $instlog $LOGFILE
-
 echo "	Log file for $PKGname is saved as $LOGFILE" | tee -a $LOGFILE
+
+# to help our wrapper script we will save our LOGFILE name(!!) into a file
+# /tmp/sgesap_validation_wrapper_logfile.name (we may not remove this file of course)
+echo $LOGFILE > /tmp/sgesap_validation_LOGFILE.name
 
 #
 # cleanup

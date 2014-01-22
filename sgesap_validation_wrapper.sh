@@ -113,23 +113,31 @@ echo "$(date '+%d-%m-%Y %H:%M:%S') Cluster $CLUSTER is $CLUSTER_STATE (nodes are
 
 for pkg in $( cat $TMPFILE | grep ^package | grep "name=" | grep -v -E '(ccmon|cccon)' | cut -d= -f2 )
 do
+	PKGLOGFILE=""	# empty the LOGFILE name (to be sure)
 	echo "$(date '+%d-%m-%Y %H:%M:%S') Inspecting package $pkg"
+	
 	# we make now the assumption if $pkg contains a 'db' string we are dealing with SAP
 	case $pkg in
 	   *db*|*DB*)
 		$SGESAP_VAL_SCRIPT -m $pkg
-		echo "$(date '+%d-%m-%Y %H:%M:%S') Amount of error(s) found in $pkg is $?"
-		#rc=$((rc + $?))
+		ERRORS=$?
 		;;
 	   *)	$SGESAP_VAL_SCRIPT -m -s $pkg
-		echo "$(date '+%d-%m-%Y %H:%M:%S') Amount of error(s) found in $pkg is $?"
-		#rc=$((rc + $?))
+		ERRORS=$?
 		;;
 	esac
+	if [[ -f /tmp/sgesap_validation_LOGFILE.name ]]; then
+		PKGLOGFILE=$( cat /tmp/sgesap_validation_LOGFILE.name )
+	fi
+	if [[ $ERRORS -eq 255 ]]; then
+		if [[ -f $PKGLOGFILE ]]; then
+			cat $PKGLOGFILE
+		fi
+	fi
+	echo "$(date '+%d-%m-%Y %H:%M:%S') $pkg returned the error code $ERRORS"
 	_line "="
 done
 
-#echo "$(date '+%d-%m-%Y %H:%M:%S') Total amount of errors is $rc"
 } 2>&1 | tee $LOGFILE
 
 
@@ -160,5 +168,5 @@ _mail "Results of package configuration  validation on cluster $CLUSTER (rc=$rc)
 ###
 ### cleanup and exit
 ###
-rm -f $TMPFILE
+rm -f $TMPFILE /tmp/sgesap_validation_LOGFILE.name
 exit $rc
