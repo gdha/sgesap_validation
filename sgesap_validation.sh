@@ -39,6 +39,8 @@ typeset -x PKGnameConf=""				# empty by default
 typeset -x TestSGeSAP=1					# Test the Serviceguard SGeSAP extention in the conf
 							# (by default we test SGeSAP stuff too) - use -s to turn off
 typeset -x MONITORMODE=0				# by default do not run in monitor mode (use -m flag)
+typeset -x PKGstatus=""					# Package status can be up, down
+typeset -x account_is_expired=0				# we use this to indicate if an account has been expired (1)
 
 ########################################################################################################################
 #
@@ -257,22 +259,47 @@ function _validCluster
 	fi
 }
 
-function _isPkgRunning
+function _isPkgConfigured
 {
 	# we use this function to determine if pkg is running or not (=new pkg)
-	#cmviewcl -f line -p $PackageNameDefined > /tmp/isPkgRunning.txt 2>&1
-	cmviewcl -f line | grep ^package | grep name= | cut -d= -f2 >/tmp/isPkgRunning.txt
+	#cmviewcl -f line -p $PackageNameDefined > /tmp/isPkgConfigured.txt 2>&1
+	cmviewcl -f line | grep ^package | grep name= | cut -d= -f2 >/tmp/isPkgConfigured.txt
 	PKGname_tmp=${PKGname##*/}       # if PKGname was a filename
 	PKGname_tmp=${PKGname_tmp%.*}    # remove .conf
-	grep -q "$PKGname_tmp" /tmp/isPkgRunning.txt
+	grep -q "$PKGname_tmp" /tmp/isPkgConfigured.txt
 	if [[ $? -ne 0 ]]; then
 		# pkg is not running
-		_print 3 "==" "Package $PKGname_tmp is \"not\" (yet) a configured package name" ; _warn
+		_print 3 "==" "Package $PKGname_tmp is \"not\" (yet) a configured package" ; _warn
 		ForceCMGETCONF=0
 	else
-		_print 3 "**" "Package $PKGname_tmp is a configured package name (cluster $(cmviewcl -fline | grep ^name= | cut -d= -f2))" ; _ok
+		_print 3 "**" "Package $PKGname_tmp is a configured package (cluster $(cmviewcl -fline | grep ^name= | cut -d= -f2))" ; _ok
 		ForceCMGETCONF=1
 	fi
+}
+
+function _isPkgRunning
+{
+	# purpose is to verify if package is running or not and we set a variable PKGstatus=(up|down|notconfigured)
+	PKGname_tmp=${PKGname##*/}       # if PKGname was a filename
+	PKGname_tmp=${PKGname_tmp%.*}    # remove .conf
+	cmviewcl -f line -p $PKGname_tmp >/tmp/isPkgRunning.txt 2>/tmp/isPkgRunning.txt
+	grep -q "is not a configured package name" /tmp/isPkgRunning.txt
+	if [[ $? -eq 0 ]]; then
+		_print 3 "==" "Package $PKGname_tmp is \"not\" (yet) a running package" ; _skip
+		PKGstatus="notconfigured"
+		return
+	fi
+	PKGstatus=$( grep status= /tmp/isPkgRunning.txt | cut -d= -f2 )
+	# if PKGstatus=down then we should not check FS stuff as the VGs are not available anyway
+	case $PKGstatus in
+		"up")	_print 3 "**" "Package $PKGname_tmp is up and running" ; _ok
+			;;
+		"down")	_print 3 "==" "Package $PKGname_tmp is \"not\" running" ; _warn
+			;;
+		*)	_print 3 "==" "Package $PKGname_tmp has shows status=$PKGstatus" ; _warn
+			;;
+	esac
+
 }
 
 function _checkPKGname
@@ -820,7 +847,13 @@ function _check_fs_name
 	count_lvols=$(ls "${VG}/" | grep -v -E '(group|^r)' | wc -l)	# what we see on $VG directory
 	count_fs_name=$(grep "^fs_name" $PKGnameConf | grep "${VG}/" | wc -l)	# what is defined in conf file
 	if [[ $count_lvols -ne $count_fs_name ]]; then
+		grep "^fs_name" $PKGnameConf | grep "${VG}/" | cut -d/ -f4 | sort > /tmp/fs_name.1
+		ls "${VG}/" | grep -v -E '(group|^r)' | sort > /tmp/fs_name.2
+		# use an array to capture the differences (could be more then 1 LV)
+		set -A LVdiff $( comm -3 /tmp/fs_name.1 /tmp/fs_name.2 )
 		_print 3 "==" "The amount of fs_name lines ($count_fs_name) defined does not match $VG/*" ; _nok
+		_warning "Lvol(s) ${LVdiff[*]} not defined in $PKGnameConf"
+		rm -f /tmp/fs_name.1 /tmp/fs_name.2
 	fi
 	grep "^fs_name" $PKGnameConf | awk '{print $2}' | grep "${VG}/" | while read lvol
 	do
@@ -848,18 +881,26 @@ function _check_fs_directory
 	grep "^fs_directory" $PKGnameConf | awk '{print $2}' | while read dir
 	do
 		_debug "Checking fs_directory=$dir"
-		mount -v | awk '{print $1, $3}' > /tmp/mount-VG-dirs
-		grep -q "$dir" /tmp/mount-VG-dirs || {
-			_print 3 "==" "fs_directory=$dir is not mounted"
-			_nok
-			[[ ! -d $dir ]] && {
-				_print 3 "==" "Directory $dir does not exist"
-				_nok
-				}
-			}
-		vxupgrade $dir | grep -q "version 5" && {
-			_debug "Schedule exec: vxupgrade -n 7 $dir"
-		}
+		if [[ "$PKGstatus" = "up" ]]; then
+			if [[ ! -d $dir ]]; then
+				_print 3 "==" "Mount path $dir does not exist" ; _nok
+			fi
+		fi
+		# retrieve list of mounted FS (excl. NFS mounted)
+		mount -v | grep -v NFSv | awk '{print $1, $3}' > /tmp/mount-VG-dirs
+		# grep the dir - mind the $ to avoid sub-strings!
+		grep -q "${dir}$" /tmp/mount-VG-dirs
+		if [[ $? -eq 0 ]]; then
+			_debug "File system $dir is mounted"
+			vxupgrade $dir | grep -q "version 5" && _debug "Schedule exec: vxupgrade -n 6 $dir"
+			vxupgrade $dir | grep -q "version 6" && _debug "Schedule exec: vxupgrade -n 7 $dir"
+		else
+			if [[ "$PKGstatus" = "down" ]]; then
+				_debug "File system $dir is not mounted as package status is down"
+			else
+				_print 3 "==" "fs_directory=$dir is not mounted (package status=$PKGstatus)" ; _warn
+			fi
+		fi
 	done
 	rm -f /tmp/mount-VG-dirs
 }
@@ -1602,6 +1643,66 @@ function _check_node_enablement
 	rm -f /tmp/_check_node_enablement.txt
 }
 
+function _is_account_locked
+{
+	# purpose is the check if account $1 is locked or not
+	# return 1 means NOT locked; 0 is locked
+        message=$( /usr/lbin/getprpw -m lockout ${1} 2>/dev/null )
+        case $? in
+        0)      # success (and system is trusted)
+                case "$(echo ${message} | cut -d= -f2)" in
+                        "0000000") # exists and is not locked
+                                return 1 ;;
+			"0000001") # exists and is intentionally disabled
+				return 1 ;;
+                        *) # account exists and is locked
+                                return 0 ;;
+                esac
+                ;;
+        4)      # system is not trusted (so not using /tcb/ structure)
+                i=$( /usr/bin/passwd -s ${1} 2>/dev/null | awk '{print NF}' )
+                case $i in
+                        2) /usr/bin/passwd -s ${1} | grep -q LK  && return 0 || return 1 ;;
+                        5|6)    # account contains an expiry date! format date mm/dd/yy
+                                current_date=$( date '+%m/%d/%y' )
+                                expiry_date=$( /usr/bin/passwd -s ${1} | awk '{print $3}' )
+                                if [[ "$expiry_date" < "$current_date" ]] ; then
+                                        print 3 "==" "Account ${1} is expired (${expiry_date})" ; _warn
+                                        #sys_logger ${PRGNAME} "${1} account is expired (${expiry_date})"
+                                        account_is_expired=1       # account is expired
+                                fi
+                                /usr/bin/passwd -s ${1} | grep -q LK  && return 0 || return 1 ;;
+                        *) return 1 ;;  # unknown status or output (no action)
+                esac
+                ;;
+        *)      return 1 ;;     # no account - no need to unlock it
+        esac
+}
+
+function _show_locked_msg
+{
+	# purpose of this script is to display the locked account info (input var is $1 account)
+	message=$( /usr/lbin/getprpw -m lockout ${1} 2>/dev/null | cut -d= -f2 )
+        case $? in
+        4)      # System is not trusted
+		# unlock and set NP
+                _print 3 "==" "Account $1 seems to be locked" ; _warn
+		_note "Schedule exec: /usr/bin/passwd -d ${1}"
+		;;
+        *)      # System is trusted
+		case "$message" in
+		    "1000000") _print 3 "==" "Account $1 seems to be locked (past password lifetime)" ; _warn ;;
+		    "0100000") _print 3 "==" "Account $1 seems to be locked (past last login time (inactive account))" ; warn ;;
+		    "0010000") _print 3 "==" "Account $1 seems to be locked (past absolute account lifetime)" ; _warn ;;
+		    "0001000") _print 3 "==" "Account $1 seems to be locked (exceeded unsuccessful login attempts)" ; _warn ;;
+		    "0000100") _print 3 "==" "Account $1 seems to be locked (password required and a null password)" ; _warn ;;
+		    "0000010") _print 3 "==" "Account $1 seems to be locked (admin lock)" ; _warn ;;
+		esac
+                _note "Schedule exec: /usr/lbin/modprpw -k ${1}"
+		;;
+        esac
+}
+
 #########################################################################################################
 #
 # MAIN
@@ -1653,7 +1754,7 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	_validSGeSAP
 	_validCluster
 	_checkPKGname
-	_isPkgRunning
+	_isPkgConfigured
 
 	# checking general package parameters
 	# when package is running download the configuration instead of using an older config file
@@ -1667,12 +1768,14 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 			_note "Switching back to $SGCONF/${PKGname}/${PKGname}.conf as failback procedure!"
 			PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf
 			rm -f /var/tmp/${PKGname}.conf.$(date +%d%b%Y)
-		else
-			# ok cmgetconf was successful - pkg is up and running - check node enablement
-			_check_node_enablement
 		fi
 	fi
+	_isPkgRunning
 	_checkPKGnameConf
+	# if package exists in cluster (status=up or down) then run the following
+	if [[ "$PKGstatus" = "up" ]] || [[ "$PKGstatus" = "down" ]]; then
+		_check_node_enablement
+	fi
 	_check_package_name
 	_check_package_defined_in_hosts_file
 	_check_package_description
@@ -1711,7 +1814,18 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 		_check_db_system
 		_check_orasid_homedir
 		_check_sidadm_homedir
-		##_check_ora_authorized_keys  (2 following lines replace this function)
+		# account_is_expired can be set to 1 by function _is_account_locked
+		account_is_expired=0
+		[[ "${orasid}" != "UNKNOWN" ]] && _is_account_locked ${orasid} && _show_locked_msg ${orasid}
+		if [[ $account_is_expired -eq 1 ]]; then
+			_print 3 "==" "Account ${orasid} is expired" ; _warn
+			account_is_expired=0   # reset
+		fi
+		[[ "${sidadm}" != "UNKNOWN" ]] && _is_account_locked ${sidadm} && _show_locked_msg ${sidadm}
+		if [[ $account_is_expired -eq 1 ]]; then
+			_print 3 "==" "Account ${orasid} is expired" ; _warn
+		fi
+		# check the SSH keys (if in use)
 		[[ "${orasid}" != "UNKNOWN" ]] && _check_authorized_keys ${orasid}
 		[[ "${sidadm}" != "UNKNOWN" ]] && _check_authorized_keys ${sidadm}
 		# function to check sidadm startdb.log ownership (if root is owner then SAP will not start)
@@ -1797,7 +1911,7 @@ echo $LOGFILE > /tmp/sgesap_validation_LOGFILE.name
 #
 # cleanup
 #
-rm -f /tmp/ERRcode.sgesap /tmp/isPkgRunning.txt
+rm -f /tmp/ERRcode.sgesap /tmp/isPkgConfigured.txt
 rm -f /tmp/HANFS-TOOLKIT-not-present /tmp/_check_nslookup_address.txt
 # The END - the exit code will be picked up by monitor script
 exit $ERRcode

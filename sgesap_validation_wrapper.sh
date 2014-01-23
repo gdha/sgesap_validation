@@ -163,7 +163,11 @@ _line "+" | tee -a $LOGFILE
 cp $LOGFILE $COPYLOGFILE
 chmod 644 $COPYLOGFILE
 
-_mail "Results of package configuration  validation on cluster $CLUSTER (rc=$rc)"
+if [[ $rc -eq 0 ]]; then
+	_mail "[SUCCESS] Results of package configuration  validation on cluster $CLUSTER"
+else
+	_mail "[FAILED] Results of package configuration  validation on cluster $CLUSTER"
+fi
 
 ###
 ### cleanup and exit
