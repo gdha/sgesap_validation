@@ -1,9 +1,9 @@
 #!/bin/ksh
 # script sgesap_validation_wrapper.sh is a wrapper script around script sgesap_validation.sh
 # it takes the output of cmviewcl listed packages and try to guess if it is SAP package or not
-# as for non-SAP packages we need to -s flag ; furthermore we use here to -m flag (monitor mode)
+# as for non-SAP packages we need to -s flag ; furthermore we use here the -m flag (monitor mode)
 # to trim the output to the bare essentials
-# When we encountered errors (exit code >1) then we mau send a message to the OVO console
+# When we encountered errors (exit code >1) then we may send a message to the OVO console (TBD)
 
 ###
 ### paramaters
@@ -30,7 +30,7 @@ typeset -r TMPFILE=/tmp/sgesap_validation_wrapper.$$
 typeset -r LOGFILE=/var/adm/log/package-validation-monitoring-results.log
 typeset -r COPYLOGFILE=/var/tmp/${PRGNAME%???}-$(date '+%Y%m%d-%H%M').log
 typeset    ovocmd=/opt/OV/bin/OpC/opcmsg
-typeset	   mailto="gdhaese1@its.jnj.com"
+typeset	   mailto="gdhaese1@its.jnj.com,pmertens@its.jnj.com,lgielen1@its.jnj.com"
 typeset    rc=0
 
 #
@@ -94,7 +94,7 @@ function do_opcmsg {
 
 function _mail {
 	[ -s "$LOGFILE" ] || LOGFILE=/dev/null
-	mailx -s "$*" $mailto < "$LOGFILE"
+	expand "$LOGFILE" | mailx -s "$*" $mailto
 }
 
 ###
