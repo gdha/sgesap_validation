@@ -41,6 +41,7 @@ typeset -x TestSGeSAP=1					# Test the Serviceguard SGeSAP extention in the conf
 typeset -x MONITORMODE=0				# by default do not run in monitor mode (use -m flag)
 typeset -x PKGstatus=""					# Package status can be up, down
 typeset -x account_is_expired=0				# we use this to indicate if an account has been expired (1)
+typeset -r SENDMAIL=/usr/lib/sendmail
 
 ########################################################################################################################
 #
@@ -163,6 +164,131 @@ function _print
 	i=$(_isnum $1)
 	[[ $i -eq 0 ]] && i=22	# if i was 0, then make it 22 (our default value)
 	printf "%${i}s %-80s " "$2" "$3"
+}
+
+function MailHeaders
+{
+    # input parameter (string of text) is used for subject line
+    echo "From: ${FromUser:-root}"
+    echo "To: ${ToUser:-root}"
+    echo "Subject: $*"
+    echo "Content-type: text/html"
+    echo "$*" | grep -q "FAILED"
+    if [[ $? -eq 0 ]]; then
+        echo "Importance: high"
+        echo "X-Priority: 1"
+    else
+        echo "Importance: normal"
+        echo "X-Priority: 3"
+    fi
+    echo ""
+}
+
+function StartOfHtmlDocument
+{
+    # define HTML style (this function should be called 1st)
+    echo '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">'
+    echo '<HTML> <HEAD>'
+    echo "<META NAME=\"CHANGED\" CONTENT=\" $(date) \">"
+    echo "<META NAME=\"DESCRIPTION\" CONTENT=\"$PRGNAME\">"
+    echo "<META NAME=\"subject\" CONTENT=\"Results of $PRGNAME\">"
+    echo '<style type="text/css">'
+    echo "Pre     {Font-Family: Courier-New, Courier;Font-Size: 10pt}"
+    echo "BODY        {FONT-FAMILY: Arial, Verdana, Helvetica, Sans-serif; FONT-SIZE: 12pt;}"
+    echo "A       {FONT-FAMILY: Arial, Verdana, Helvetica, Sans-serif}"
+    echo "A:link      {text-decoration: none}"
+    echo "A:visited   {text-decoration: none}"
+    echo "A:hover     {text-decoration: underline}"
+    echo "A:active    {color: red; text-decoration: none}"
+    echo "H1      {FONT-FAMILY: Arial, Verdana, Helvetica, Sans-serif;FONT-SIZE: 20pt}"
+    echo "H2      {FONT-FAMILY: Arial, Verdana, Helvetica, Sans-serif;FONT-SIZE: 14pt}"
+    echo "H3      {FONT-FAMILY: Arial, Verdana, Helvetica, Sans-serif;FONT-SIZE: 12pt}"
+    echo "DIV, P, OL, UL, SPAN, TD"
+    echo "{FONT-FAMILY: Arial, Verdana, Helvetica, Sans-serif;FONT-SIZE: 11pt}"
+    echo "</style>"
+}
+
+function SetTitleOfDocument
+{
+    # define title of HTML document and start of body (should be called 2th)
+    echo "<TITLE>${PRGNAME} - $(hostname)</TITLE>"
+    echo "</HEAD>"
+    echo "<BODY>"
+    echo "<CENTER>"
+    echo "<H1> <FONT COLOR=blue>"
+    echo "<P><hr><B>${PRGNAME} - $(hostname) - $*</B></P>"
+    echo "</FONT> </H1>"
+    echo "<hr> <FONT COLOR=blue> <small>Created on \"$(date)\" by $PRGNAME</small> </FONT>"
+    echo "</CENTER>"
+}
+
+function EndOfHtmlDocument
+{
+    echo "</BODY> </HTML>"
+}
+
+function CreateTable
+{
+    # start of a new HTML table
+    echo "<table width=100% border=0 cellspacing=0 cellpadding=0 style=\"border: 0 solid #000080\">"
+}
+
+function EndTable
+{
+    # end of existing HTML table
+    echo "</table>"
+}
+
+function TableRow
+{
+    # function should be called when we are inside a table
+    typeset row="$1"
+    columns=""
+    typeset color=${2:-white}  # default background color is white
+    typeset -i c=0
+
+    case "$( echo "$row" | cut -c1-3 )" in
+        "** " ) columns[0]='**'
+		row=$( echo "$row" | cut -c4- )
+                color="#99FF99" ;;
+	"== " ) columns[0]="==" 
+                row=$( echo "$row" | cut -c4- )
+                color="red" ;;
+	*     ) columns[0]=""  ;;
+    esac
+    columns[1]=$( echo "$row" |  sed -e 's/\(.*\)\[.*/\1/' )   # the text with ** and [ ... ]
+    echo "$row" | grep -q '\['
+    if [[ $? -eq 0 ]]; then
+        columns[2]=$( echo "$row" | sed -e 's/.*\(\[.*\]\)/\1/' )  # contains [  OK  ]
+    else
+        columns[2]=""
+    fi
+    
+    echo "<tr bgcolor=\"$color\">"
+
+    while (( $c < ${#columns[@]} )); do
+        echo "  <td align=left><font size=-1>\c"
+	str=$( echo "${columns[c]}" | sed -e 's/^[:blank:]*//;s/[:blank:]*$//' )  # remove leading/trailing spaces
+        [[ $c -eq 1 ]] && printf "<b>$str</b>" || printf "$str"
+        echo "</td>"
+        c=$((c + 1))
+    done
+    echo "</tr>"
+}
+
+function GenerateHTMLMail
+{
+    # input parameter (string of text) is used for subject line
+    MailHeaders "$*"
+    StartOfHtmlDocument
+    SetTitleOfDocument "$*"
+    CreateTable
+    cat $LOGFILE | while read LINE
+    do
+        TableRow "$LINE"
+    done
+    EndTable
+    EndOfHtmlDocument
 }
 
 function _whoami
@@ -1722,6 +1848,10 @@ while [ $# -gt 0 ]; do
 		-m) MONITORMODE=1
 		    shift 1
 		    ;;
+                -M) ToUser="$2"
+		    _is_var_empty "$ToUser" || ToUser=""
+		    shift 2
+		    ;;
                 -f) READLOCALCONFFILE=1
 		    shift 1
 		    ;;
@@ -1903,6 +2033,15 @@ if [[ $MONITORMODE -eq 0 ]]; then
 fi
 
 echo "	Log file for $PKGname is saved as $LOGFILE" | tee -a $LOGFILE
+
+if [[ ! -z "$ToUser" ]]; then
+    # when we manually defined -M mail@adress send an HTML mail
+    if [[ $ERRcode -eq 0 ]]; then
+        GenerateHTMLMail "[SUCCESS] Results of package configuration of SG package ${PKGname}" | $SENDMAIL -t "$ToUser"
+    else
+        GenerateHTMLMail "[FAILED] Results of package configuration of SG package ${PKGname}"  | $SENDMAIL -t "$ToUser"
+    fi
+fi
 
 # to help our wrapper script we will save our LOGFILE name(!!) into a file
 # /tmp/sgesap_validation_wrapper_logfile.name (we may not remove this file of course)
