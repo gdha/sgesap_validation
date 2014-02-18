@@ -30,7 +30,7 @@ typeset -r TMPFILE=/tmp/sgesap_validation_wrapper.$$
 typeset -r LOGFILE=/var/adm/log/package-validation-monitoring-results.log
 typeset -r COPYLOGFILE=/var/tmp/${PRGNAME%???}-$(date '+%Y%m%d-%H%M').log
 typeset    ovocmd=/opt/OV/bin/OpC/opcmsg
-typeset	   ToUser="gdhaese1@its.jnj.com,pmertens@its.jnj.com,lgielen1@its.jnj.com"
+typeset	   ToUser="DL-NCSBE-ITSGTSCMonitor3@ITS.JNJ.com"
 typeset -r SENDMAIL=/usr/lib/sendmail
 typeset    rc=0
 
@@ -182,10 +182,10 @@ function TableRow
     case "$( echo "$row" | cut -c1-3 )" in
         "** " ) columns[0]='**'
 		row=$( echo "$row" | cut -c4- )
-                color="#99FF99" ;;
+                ;;
 	"== " ) columns[0]="==" 
                 row=$( echo "$row" | cut -c4- )
-                color="red" ;;
+                ;;
 	*     ) columns[0]=""  ;;
     esac
     columns[1]=$( echo "$row" |  sed -e 's/\(.*\)\[.*/\1/' )   # the text with ** and [ ... ]
@@ -196,10 +196,29 @@ function TableRow
         columns[2]=""
     fi
     
+    # set the colors correct
+    case "$( echo "${columns[2]}" | sed -e 's/\[//;s/\]//' -e 's/ //g' )" in
+        "OK")           color="#00CA00" ;;      # greenish
+        "FAILED")       color="#FF0000" ;;      # redish
+        "WARN")
+                if [[ "${columns[0]}" = "**" ]]; then
+                        color="#E8E800"         # yellow alike
+                else
+                        color="#FB6104"         # orange alike
+                fi
+                ;;
+        "SKIP")         color="#000000" ;;      # black
+    esac
+
     echo "<tr bgcolor=\"$color\">"
 
     while (( $c < ${#columns[@]} )); do
-        echo "  <td align=left><font size=-1>\c"
+        if [[ "$color" = "#FF0000" ]] || [[ "$color" = "#FB6104" ]] || [[ "$color" = "#000000" ]]; then
+            # foreground color white if background color is redish or orangish or black
+            echo "  <td align=left><font size=-1 color="white">\c"
+        else
+            echo "  <td align=left><font size=-1>\c"
+        fi
 	str=$( echo "${columns[c]}" | sed -e 's/^[:blank:]*//;s/[:blank:]*$//' )  # remove leading/trailing spaces
         [[ $c -eq 1 ]] && printf "<b>$str</b>" || printf "$str"
         echo "</td>"

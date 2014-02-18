@@ -38,10 +38,12 @@ typeset -x PKGname=""					# empty by default
 typeset -x PKGnameConf=""				# empty by default
 typeset -x TestSGeSAP=1					# Test the Serviceguard SGeSAP extention in the conf
 							# (by default we test SGeSAP stuff too) - use -s to turn off
+typeset -x CONCLUSTERAWARE=N				# default setting N - package is not part of continental cluster
+typeset -x RECOVERYCLUSTERACTIVE=N			# default setting N - package is not running on recovery cluster
 typeset -x MONITORMODE=0				# by default do not run in monitor mode (use -m flag)
 typeset -x PKGstatus=""					# Package status can be up, down
 typeset -x account_is_expired=0				# we use this to indicate if an account has been expired (1)
-typeset -r SENDMAIL=/usr/lib/sendmail
+typeset -r SENDMAIL=/usr/lib/sendmail			# used by function GenerateHTMLMail
 
 ########################################################################################################################
 #
@@ -250,10 +252,10 @@ function TableRow
     case "$( echo "$row" | cut -c1-3 )" in
         "** " ) columns[0]='**'
 		row=$( echo "$row" | cut -c4- )
-                color="#99FF99" ;;
+                ;;
 	"== " ) columns[0]="==" 
                 row=$( echo "$row" | cut -c4- )
-                color="red" ;;
+                ;;
 	*     ) columns[0]=""  ;;
     esac
     columns[1]=$( echo "$row" |  sed -e 's/\(.*\)\[.*/\1/' )   # the text with ** and [ ... ]
@@ -263,11 +265,29 @@ function TableRow
     else
         columns[2]=""
     fi
+    # set the colors correct
+    case "$( echo "${columns[2]}" | sed -e 's/\[//;s/\]//' -e 's/ //g' )" in
+	"OK")		color="#00CA00" ;;	# greenish
+	"FAILED")	color="#FF0000" ;;	# redish
+	"WARN")
+		if [[ "${columns[0]}" = "**" ]]; then
+			color="#E8E800"		# yellow alike
+		else
+			color="#FB6104"		# orange alike
+		fi
+		;;
+	"SKIP")		color="#000000" ;;	# black
+    esac
     
     echo "<tr bgcolor=\"$color\">"
 
     while (( $c < ${#columns[@]} )); do
-        echo "  <td align=left><font size=-1>\c"
+	if [[ "$color" = "#FF0000" ]] || [[ "$color" = "#FB6104" ]] || [[ "$color" = "#000000" ]]; then
+		# foreground color white if background color is redish or orangish or black
+		echo "  <td align=left><font size=-1 color="white">\c"
+	else
+        	echo "  <td align=left><font size=-1>\c"
+	fi
 	str=$( echo "${columns[c]}" | sed -e 's/^[:blank:]*//;s/[:blank:]*$//' )  # remove leading/trailing spaces
         [[ $c -eq 1 ]] && printf "<b>$str</b>" || printf "$str"
         echo "</td>"
@@ -371,6 +391,85 @@ function _validSGeSAP
 	fi
 }
 
+function _isPkgContinentalClusterAware
+{
+	# purpose is define 2 variables CONCLUSTERAWARE=[Y|N] and RECOVERYCLUSTERACTIVE=[Y|N] (defaults are N for both)
+	# no input arguments; no output args except defining the vars
+	# 1st: check if continental cluster software is installed; if not no need to proceed
+	_check_continental_cluster_software || return 0
+	# 2th: collect the CCCONFIG_FILE (we need the cmviewconcl executable)
+	_collectContinentalClusterConfigurationFile || return 0
+	# 3th: check if we are continental cluster aware - guess yes as we are still here
+	_continentalClusterAware
+	_debug "CONCLUSTERAWARE=$CONCLUSTERAWARE"
+	_debug "RECOVERYCLUSTERACTIVE=$RECOVERYCLUSTERACTIVE"
+	rm -f $CCCONFIG_FILE
+}
+
+function _check_continental_cluster_software
+{
+	# T2346BA  A.08.00.00     HP Continentalclusters
+	/usr/sbin/swlist T2346BA,r\>=A.08.00.00 >/dev/null 2>&1
+	return $?
+}
+
+function _collectContinentalClusterConfigurationFile
+{
+	# run a cmviewconcl command and collect the configuration file
+	# input args: none; output args: 0 (cmviewconcl OK) or 1 (failure)
+	type /usr/sbin/cmviewconcl >/dev/null 2>&1
+	rc=$?
+	if [[ $rc -eq 0 ]]; then
+		CCCONFIG_FILE=/tmp/CCCONFIG_FILE.txt
+		/usr/sbin/cmviewconcl >$CCCONFIG_FILE 2>&1
+		rc=$?
+	fi
+	return $rc
+}
+
+function _continentalClusterAware
+{
+	# define CONCLUSTERAWARE and RECOVERYCLUSTERACTIVE
+	CCCONFIG_FILE=/tmp/CCCONFIG_FILE.txt
+	CC_NAME=$( grep "^CONTINENTAL CLUSTER" $CCCONFIG_FILE | awk '{print $3,$4}' )
+	_debug "Continental Cluster name is $CC_NAME"
+	PRIM_CL=$( _find_and_print_x_lines "PRIMARY CLUSTER" 2 $CCCONFIG_FILE | tail -1 | awk '{print $1}' )
+	REC_CL=$( grep "RECOVERY CLUSTER" $CCCONFIG_FILE | awk '{print $3}' )
+	_debug "Primary cluster name is $PRIM_CL"
+	_debug "Recovery cluster name is $REC_CL"
+	PRIM_CL_STATUS=$( _find_and_print_x_lines "PRIMARY CLUSTER" 2 $CCCONFIG_FILE | tail -1 | awk '{print $2}' )
+	if [[ ! -z "$PRIM_CL_STATUS" ]]; then
+		if [[ "$PRIM_CL_STATUS" = "up" ]]; then
+			_debug "Primary cluster ($PRIM_CL) status is \"$PRIM_CL_STATUS\""
+			CONCLUSTERAWARE=Y
+			RECOVERYCLUSTERACTIVE=N
+		else
+			CONCLUSTERAWARE=Y
+			_debug "Primary cluster ($PRIM_CL) status is \"$PRIM_CL_STATUS\""
+			# check now if recovery cluster is up!
+			grep recovery $CCCONFIG_FILE | grep -q up
+			if [[ $? -eq 0 ]]; then
+				_debug "Recovery cluster ($REC_CL) status is \"up\""
+				RECOVERYCLUSTERACTIVE=Y
+			else
+				_debug "Recovery cluster status is down"
+				RECOVERYCLUSTERACTIVE=N
+			fi
+		fi
+	else
+		_debug "Primary and recovery cluster status are not known"
+	fi
+}
+
+function _find_and_print_x_lines
+{
+	# find a keyword (string) and print x nr of lines after that keyword (line of keyword included)
+	# input args: $1 (string to find); $2=integer (amount of lines); $3=filename to search in
+	# output: lines of text
+	awk '/'"$1"'/ {p = '"$2"'} p > 0  {print $0; p--}' $3
+}
+
+
 function _validCluster
 {
 	out=$(cmviewcl -l cluster 2>&1 | tail -1)
@@ -420,7 +519,17 @@ function _isPkgRunning
 	case $PKGstatus in
 		"up")	_print 3 "**" "Package $PKGname_tmp is up and running" ; _ok
 			;;
-		"down")	_print 3 "==" "Package $PKGname_tmp is \"not\" running" ; _warn
+		"down")	# be careful if CONCLUSTERAWARE=Y and RECOVERYCLUSTERACTIVE=N
+			if [[ "$CONCLUSTERAWARE" = "N" ]]; then
+				_print 3 "==" "Package $PKGname_tmp is \"not\" running" ; _nok
+			else
+				# CONCLUSTERAWARE=Y
+				if [[ "$RECOVERYCLUSTERACTIVE" = "N" ]]; then
+					_print 3 "**" "Package $PKGname_tmp is \"not\" running" ; _ok
+				else
+					_print 3 "==" "Package $PKGname_tmp is \"not\" running" ; _nok
+				fi
+			fi
 			;;
 		*)	_print 3 "==" "Package $PKGname_tmp has shows status=$PKGstatus" ; _warn
 			;;
@@ -465,6 +574,27 @@ function _check_package_name
 		_print 3 "==" "Missing package_name in ${PKGname}.conf" ; _nok
 	else
 		_print 3 "**" "Found package_name ($PackageNameDefined) in ${PKGname}.conf" ; _ok
+	fi
+}
+
+function _check_package_running_on_node
+{
+	# show the status of the package and on which node it is running
+	PackageNameDefined=$(grep ^package_name $PKGnameConf | awk '{print $2}')
+	Nodes_status=$( cmviewcl -f line -v -p $PackageNameDefined 2>/dev/null | grep ^node | grep -E '(name=|status=)' | cut -d"|" -f2 | cut -d= -f2 | awk 1 ORS=' ' )
+	# e.g. Nodes_status="gltdbdr1 down gltdbdr2 up"
+	echo "$Nodes_status" | grep -q " up"   # mind the leading space to avoid mistakes with packagename containing up
+	if [[ $? -eq 0 ]]; then
+		# is it running on primary or alternate node?
+		if [[ "$(echo $Nodes_status | awk '{print $2}')" = "up" ]]; then
+			# package running on primary node
+			_print 3 "**" "Package ($PackageNameDefined) is running on primary node: $Nodes_status" ; _ok
+		else
+			# package running on alternate node
+			_print 3 "**" "Package ($PackageNameDefined) is running on alternate node: $Nodes_status" ; _warn
+		fi
+	else
+		_print 3 "**" "Package ($PackageNameDefined) is not active: $Nodes_status" ; _ok
 	fi
 }
 
@@ -544,7 +674,11 @@ function _check_auto_run
 	elif [[ "$AutoRunDefined" = "yes" ]]; then
 		_print 3 "**" "Found auto_run ($AutoRunDefined) in ${PKGname}.conf" ; _ok
 	else
-		_print 3 "**" "Found auto_run ($AutoRunDefined) in ${PKGname}.conf (should be \"yes\")" ; _warn
+		if [[ "$CONCLUSTERAWARE" = "Y" ]]; then
+			_print 3 "**" "Found auto_run ($AutoRunDefined) in ${PKGname}.conf (continental cluster)" ; _ok
+		else
+			_print 3 "**" "Found auto_run ($AutoRunDefined) in ${PKGname}.conf (should be \"yes\")" ; _nok
+		fi
 	fi
 }
 
@@ -849,7 +983,7 @@ function _check_user_name
 	fi
 
 	if [[ $count_username -eq 0 ]]; then
-		_print 3 "==" "No user_name was defined. Perhaps this was on purpose, maybe not - pls verify"; _warn
+		_print 3 "**" "No user_name was defined. Perhaps this was on purpose, maybe not - pls verify"; _warn
 		return
 	fi
 
@@ -1900,12 +2034,18 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 			rm -f /var/tmp/${PKGname}.conf.$(date +%d%b%Y)
 		fi
 	fi
+	# before doing the check if package is running we need to verify if we are dealing with a
+	# continental cluster setup, and if package resides on recovery cluster then when it is
+	# down to not consider this as a warning, but show ok instead
+	_isPkgContinentalClusterAware  # define variables CONCLUSTERAWARE and RECOVERYCLUSTERACTIVE
 	_isPkgRunning
 	_checkPKGnameConf
 	# if package exists in cluster (status=up or down) then run the following
 	if [[ "$PKGstatus" = "up" ]] || [[ "$PKGstatus" = "down" ]]; then
 		_check_node_enablement
 	fi
+	# check if package is running on primary node or on an alternate node (informative)
+	_check_package_running_on_node
 	_check_package_name
 	_check_package_defined_in_hosts_file
 	_check_package_description
