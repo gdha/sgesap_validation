@@ -260,12 +260,16 @@ function GenerateHTMLMail
 {
 _banner "Wrapper script (and monitoring) around sgesap_validation.sh"
 
-/usr/sbin/cmviewcl -f line  > $TMPFILE
+/usr/sbin/cmviewcl -f line  > $TMPFILE 2>/dev/null
 CLUSTER=$( grep ^name $TMPFILE | cut -d= -f 2 )
 CLUSTER_STATE=$( grep ^status $TMPFILE | cut -d= -f 2 )
 set -A CLUSTER_NODES $(grep ^node $TMPFILE | grep name= | cut -d= -f 2 )
 
-echo "$(date '+%d-%m-%Y %H:%M:%S') Cluster $CLUSTER is $CLUSTER_STATE (nodes are ${CLUSTER_NODES[@]})"
+if [[ -z "$CLUSTER" ]]; then
+	echo "$(date '+%d-%m-%Y %H:%M:%S') No cluster running on this system ($HOSTNAME)"
+else
+	echo "$(date '+%d-%m-%Y %H:%M:%S') Cluster $CLUSTER is $CLUSTER_STATE (nodes are ${CLUSTER_NODES[@]})"
+fi
 
 for pkg in $( cat $TMPFILE | grep ^package | grep "name=" | grep -v -E '(ccmon|cccon)' | cut -d= -f2 )
 do
@@ -300,6 +304,8 @@ done
 # count the amount of FAILED lines
 ERRORS=$( grep FAILED $LOGFILE | wc -l )
 CLUSTER=$( grep Cluster $LOGFILE | awk '{print $4}' )
+[[ -z "$CLUSTER" ]] && CLUSTER="n/a"  # if we run this on a non-clustered system
+
 if [[ $ERRORS -gt 0 ]]; then
 	rc=1
 	msg="ERROR: found $ERRORS error(s) in package configurations of cluster $CLUSTER (rc=$rc)"
