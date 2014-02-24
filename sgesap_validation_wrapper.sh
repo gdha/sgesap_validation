@@ -282,6 +282,10 @@ do
 		$SGESAP_VAL_SCRIPT -m $pkg
 		ERRORS=$?
 		;;
+	   w*|z*)
+		$SGESAP_VAL_SCRIPT -m -w $pkg
+		ERRORS=$?
+		;;
 	   *)	$SGESAP_VAL_SCRIPT -m -s $pkg
 		ERRORS=$?
 		;;
