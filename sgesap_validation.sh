@@ -38,6 +38,9 @@ typeset -x PKGname=""					# empty by default
 typeset -x PKGnameConf=""				# empty by default
 typeset -x TestSGeSAP=1					# Test the Serviceguard SGeSAP extention in the conf
 							# (by default we test SGeSAP stuff too) - use -s to turn off
+typeset -x orasid="UNKNOWN"				# define it to please SAP WebDispatcher
+typeset -x sidadm="UNKNOWN"				# define it to please SAP WebDispatcher
+typeset -x SAPWEBDISPATCHER=0				# SAP WebDispatcher check (is a subset of SGeSAP extention)
 typeset -x CONCLUSTERAWARE=N				# default setting N - package is not part of continental cluster
 typeset -x RECOVERYCLUSTERACTIVE=N			# default setting N - package is not running on recovery cluster
 typeset -x MONITORMODE=0				# by default do not run in monitor mode (use -m flag)
@@ -352,12 +355,14 @@ function _isnum
 function _show_help_sgesap_validation
 {
 	cat - <<-end-of-text
-	Usage: $PRGNAME [-d] [-s] [-h] [-f] package_name
+	Usage: $PRGNAME [-d] [-s] [-h] [-f] [-M mail_address] package_name
 
 	-d:	Enable debug mode (by default off)
 	-s:	Disable SGeSAP testing in package configuration file
 	-f:	Force the read the local package_name.conf file instead of the one from cmgetconf
 	-m:	Monitor mode (less output) shows only warnings and failed lines
+	-M:	Add one or more mail addresses with "mail-address1, mail-address2"
+	-w:	SAP WebDispatcher
 	-h:	Show usage [this page]
 
 	end-of-text
@@ -790,11 +795,26 @@ function _check_ip_address
 	IpAddressDefined=$(grep ^ip_address $PKGnameConf | awk '{print $2}' | wc -l)
 	if [[ $IpAddressDefined -ge 1 ]]; then
 		_print 3 "**" "Found ip_address ($IpAddressDefined line(s)) in ${PKGname}.conf" ; _ok
-		[[ $IpAddressDefined -ne $IpSubnetDefined ]] && \
-		    _warning "Amount of ip_subnet ($IpSubnetDefined) is not the same of ip_address ($IpAddressDefined)" 
+		if [[ $IpAddressDefined -ne $IpSubnetDefined ]]; then
+		    _compare_subnet_with_ip_addresses
+	        fi
 	else
 		_print 3 "==" "Missing ip_address in ${PKGname}.conf" ; _nok
 	fi
+}
+
+function _compare_subnet_with_ip_addresses
+{
+	# compare the amount of subnets with ip_addresses
+	grep "^ip_subnet[[:blank:]]" $PKGnameConf | awk '{print $2}' | cut -d"." -f 1-3 | sort -u > /tmp/my_subnets_$$.txt
+	grep ^ip_address $PKGnameConf | awk '{print $2}' | cut -d"." -f 1-3  | sort -u > /tmp/my_ip_addresses_$$.txt
+	cmp -s /tmp/my_subnets_$$.txt /tmp/my_ip_addresses_$$.txt
+	if [[ $? -eq 1 ]]; then
+		_print 3 "==" "Amount of ip_subnet(s) ($(cat /tmp/my_subnets_$$.txt | wc -l)) do not correspond with amount of ip_address/subnets ($(cat /tmp/my_ip_addresses_$$.txt | wc -l))" ; _warn
+	else
+		_print 3 "**" "Amount of ip_subnet(s) ($(cat /tmp/my_subnets_$$.txt | wc -l)) and ip_address/subnets ($(cat /tmp/my_ip_addresses_$$.txt | wc -l)) are equal" ; _ok
+	fi
+	rm -f /tmp/my_subnets_$$.txt /tmp/my_ip_addresses_$$.txt
 }
 
 function _check_nslookup_address
@@ -1986,6 +2006,9 @@ while [ $# -gt 0 ]; do
 		    _is_var_empty "$ToUser" || ToUser=""
 		    shift 2
 		    ;;
+		-w) SAPWEBDISPATCHER=1
+		    shift 1
+		    ;;
                 -f) READLOCALCONFFILE=1
 		    shift 1
 		    ;;
@@ -2080,9 +2103,9 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	if [[ TestSGeSAP -eq 1 ]]; then
 		# continue with testing SGeSAP stuff in conf file
 		_check_sap_modules
-		_check_db_vendor
-		_check_db_system
-		_check_orasid_homedir
+		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_db_vendor  # do not check for SAP Webdispatcher
+		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_db_system
+		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_orasid_homedir
 		_check_sidadm_homedir
 		# account_is_expired can be set to 1 by function _is_account_locked
 		account_is_expired=0
@@ -2102,15 +2125,15 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 		_check_startdb_log_ownership
 		_check_stopdb_log_ownership
 		_check_sapms_service
-		_check_listener_name
+		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_listener_name
 		_check_sap_system
 		_check_rem_comm
 		_check_cleanup_policy
 		_check_retry_count
 		_check_sap_instance
 		_check_sap_virtual_hostname
-		_check_sap_infra_sw_type
-		_check_sap_infra_sw_treat
+		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_sap_infra_sw_type
+		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_sap_infra_sw_treat
 	fi
 
 	# checking hanfs
