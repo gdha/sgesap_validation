@@ -426,7 +426,9 @@ function _collectContinentalClusterConfigurationFile
 	rc=$?
 	if [[ $rc -eq 0 ]]; then
 		CCCONFIG_FILE=/tmp/CCCONFIG_FILE.txt
-		/usr/sbin/cmviewconcl >$CCCONFIG_FILE 2>&1
+		# it is important to keep the redirect from /dev/null - if you remove it, the while
+		# loop will exit after the first iteration.  (this is comparable to the -n option for ssh)
+		/usr/sbin/cmviewconcl </dev/null  >$CCCONFIG_FILE 2>&1
 		rc=$?
 	fi
 	return $rc
