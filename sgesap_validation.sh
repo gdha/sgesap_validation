@@ -1974,7 +1974,7 @@ function _show_locked_msg
         *)      # System is trusted
 		case "$message" in
 		    "1000000") _print 3 "==" "Account $1 seems to be locked (past password lifetime)" ; _warn ;;
-		    "0100000") _print 3 "==" "Account $1 seems to be locked (past last login time (inactive account))" ; warn ;;
+		    "0100000") _print 3 "==" "Account $1 seems to be locked (past last login time (inactive account))" ; _warn ;;
 		    "0010000") _print 3 "==" "Account $1 seems to be locked (past absolute account lifetime)" ; _warn ;;
 		    "0001000") _print 3 "==" "Account $1 seems to be locked (exceeded unsuccessful login attempts)" ; _warn ;;
 		    "0000100") _print 3 "==" "Account $1 seems to be locked (password required and a null password)" ; _warn ;;
