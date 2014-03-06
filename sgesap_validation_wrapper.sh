@@ -5,6 +5,8 @@
 # to trim the output to the bare essentials
 # When we encountered errors (exit code >1) then we may send a message to the OVO console (TBD)
 
+# $Id: $
+
 ###
 ### paramaters
 ###
