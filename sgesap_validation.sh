@@ -2058,6 +2058,8 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 			PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf
 			rm -f /var/tmp/${PKGname}.conf.$(date +%d%b%Y)
 		fi
+        else
+		PKGnameConf=$SGCONF/${PKGname}/${PKGname}.conf
 	fi
 	# before doing the check if package is running we need to verify if we are dealing with a
 	# continental cluster setup, and if package resides on recovery cluster then when it is
