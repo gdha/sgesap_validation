@@ -1591,7 +1591,7 @@ function _check_nfs_present
 		if [[ $? -eq 0 ]]; then
 			_print 3 "**" "Found module_names for nfs/hanfs" ; _ok
 		else
-			_print 3 "==" "Missing module_names for nfs/hanfs in ${PKGname}.conf" ; _nok
+			_print 3 "==" "Missing module_names for nfs/hanfs in ${PKGname}.conf" ; _warn
 			_note "Use cmmakepkg -n <Package Name> -m nfs/hanfs ..."
 		fi
 	else
