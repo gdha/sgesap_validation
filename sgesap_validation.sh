@@ -47,6 +47,7 @@ typeset -x MONITORMODE=0				# by default do not run in monitor mode (use -m flag
 typeset -x PKGstatus=""					# Package status can be up, down
 typeset -x account_is_expired=0				# we use this to indicate if an account has been expired (1)
 typeset -r SENDMAIL=/usr/lib/sendmail			# used by function GenerateHTMLMail
+typeset -x ERS_PACKAGE=0				# variable ERS_PACKAGE=1 means an ERS package (must have resource)
 
 ########################################################################################################################
 #
@@ -602,6 +603,27 @@ function _check_package_running_on_node
 		fi
 	else
 		_print 3 "**" "Package ($PackageNameDefined) is not active: $Nodes_status" ; _ok
+	fi
+}
+
+function _check_ers_package
+{
+	# verify if $PackageNameDefined contains "ers" or not (indicates an ERS package for SAPdb
+	echo "$PackageNameDefined" | grep -i ers && ERS_PACKAGE=1
+}
+
+function _check_ip_monitor
+{
+	cmviewcl -fline -v | grep -i ip_monitor=on > /tmp/ip_monitor.$PKGname
+	count=$( wc -l /tmp/ip_monitor.$PKGname | awk '{print $1}')
+	if [[ $count -gt 0 ]]; then
+		# issue ip_monitor=on means problems - see issue #25
+		_print 3 "==" "Turn off ip_monitor in the cluster configuration (not package issue)" ; _warn
+		_note "The following lines should be modified to off:"
+		cat /tmp/ip_monitor.$PKGname 
+		rm -f /tmp/ip_monitor.$PKGname 
+	else
+		_print 3 "**" "ip_monitor=off - should be off in cluster configuration" ; _ok
 	fi
 }
 
@@ -1185,6 +1207,45 @@ function _check_fs_directory
 		fi
 	done
 	rm -f /tmp/mount-VG-dirs
+}
+
+function _check_resource_module
+{
+	_debug "Entering function _check_resource_module"
+	# in case we have SGeSAP DB or jdb or ERS we might need the module_name sg/resource
+	module=$(grep "^module_name" $PKGnameConf | awk '{print $2}' | grep "resource")
+	if [[ -z "$module" ]] ; then
+		# check if we defined a resource_ line; the module must be defined as well
+		grep -q "^resource_name" $PKGnameConf &&  {
+			_print 3 "==" "No module_name sg/resource defined (resource_name setting requires it)" ; _nok
+			_note "Use cmmakepkg -n <Package Name> -m sg/resource ..."
+		}
+	elif [[ ! -z "$module" ]] ; then
+		_print 3 "**" "module_name sg/resource defined in ${PKGname}.conf" ; _ok
+	fi
+}
+
+function _check_resource_lines
+{
+	_debug "Entering function _check_resource_lines"
+	typeset -i count
+	grep "^resource_" $PKGnameConf > /tmp/resources_${PKGname}
+	count=$(wc -l /tmp/resources_${PKGname} | awk '{print $1}')
+	if [[ $count -eq 0 ]] && [[ $ERS_PACKAGE -eq 1 ]]; then
+		_print 3 "==" "Expecting 4 resource lines for ERS package in ${PKGnameConf}" ; _nok
+		return
+	fi
+	modulus=$((count%4))  # 4 lines gives 0; otherwise remainder
+	if [[ $modulus -ne 0 ]]; then
+		# we should minimum 4 lines
+		_print 3 "==" "Expecting even amount of resource lines (we have $count)" ; _warn
+		_note "We found the following settings in ${PKGnameConf}"
+		cat /tmp/resources_${PKGname}
+	else
+		_print 3 "**" "Amount of resource lines is even (count is $count)" ; _ok
+		[[ $count -eq 0 ]] && _note "No resource lines are defined (EMS triggers not active)"
+	fi
+	rm -f /tmp/resources_${PKGname}
 }
 
 function _check_sap_modules
@@ -2009,6 +2070,7 @@ while [ $# -gt 0 ]; do
 		    shift 2
 		    ;;
 		-w) SAPWEBDISPATCHER=1
+		    TestSGeSAP=1        # we turn TestSGeSAP on in case we give option '-s' and '-w'
 		    shift 1
 		    ;;
                 -f) READLOCALCONFFILE=1
@@ -2074,10 +2136,13 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	# check if package is running on primary node or on an alternate node (informative)
 	_check_package_running_on_node
 	_check_package_name
+	_check_ers_package
 	_check_package_defined_in_hosts_file
 	_check_package_description
 	_check_node_name
 	_check_package_type
+	_check_resource_module
+	_check_ip_monitor
 	_check_auto_run
 	_check_node_fail_fast_enabled
 	_check_failover_policy
@@ -2107,6 +2172,7 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	if [[ TestSGeSAP -eq 1 ]]; then
 		# continue with testing SGeSAP stuff in conf file
 		_check_sap_modules
+		_check_resource_lines
 		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_db_vendor  # do not check for SAP Webdispatcher
 		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_db_system
 		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_orasid_homedir
