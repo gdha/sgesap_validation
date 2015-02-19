@@ -1979,9 +1979,8 @@ function _check_minor_number
 {
 	# input arg: expdir
 	expdir="$1"
-        
 	# map the expdir to its VG/lvol
-	lvolexpdir=$(mount | grep $expdir | awk '{print $3}')
+	lvolexpdir=$(mount -l | grep $expdir | awk '{print $3}')
 	# check minor number on both nodes as this could lead to stale NFS issues
 	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
 	do
@@ -1996,9 +1995,9 @@ function _check_minor_number
 		   for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
 		   do
 			_note "On node $NODE the minor nr is $(cat /tmp/minor_nr.$NODE)"
-			rm -f /tmp/minor_nr.$NODE
 		   done
 	esac
+	rm -f /tmp/minor_nr.*
 }
 
 function _check_node_enablement
