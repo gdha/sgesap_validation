@@ -1683,8 +1683,10 @@ function _check_file_lock_migration
 		_print 3 "==" "Missing nfs/hanfs_export/FILE_LOCK_MIGRATION in ${PKGname}.conf (use \"1\")" ; _warn
 	elif [[ $FileLockMigrationDefined -eq 1 ]]; then
 		_print 3 "**" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined" ; _ok
+		_check_flm_holding_dir
+		_check_nfsv4_flm_holding_dir
 	else
-		_print 3 "==" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined (use \"1\")" ; _warn
+		_print 3 "**" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined ($FileLockMigrationDefined)" ; _ok
 	fi
 }
 
@@ -1787,6 +1789,9 @@ function _check_nfs_xfs
 		else
 			_print 3 "**" "nfs/hanfs_export/XFS $expdir (directory exists)" ; _ok
 		fi
+
+		# We need to check the minor number on all the nodes of exported NFS directory
+		_check_minor_number "$expdir"
 
 		# CR QXCR1001219901 access list must be < 4096 bytes
 		count=$(echo $systems | wc -c)
@@ -1968,6 +1973,32 @@ function _check_dfstab
 		_print 3 "==" "Please move the following line into the ${PKGname}.conf (XFS line)" ; _nok
 		_note "Schedule exec: move out /etc/fstab - $Line"
 	done
+}
+
+function _check_minor_number
+{
+	# input arg: expdir
+	expdir="$1"
+        
+	# map the expdir to its VG/lvol
+	lvolexpdir=$(mount | grep $expdir | awk '{print $3}')
+	# check minor number on both nodes as this could lead to stale NFS issues
+	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
+	do
+		_debug "Checking minor number of export NFS mount point on node $NODE"
+		cmdo -n $NODE ls -ld $lvolexpdir | tail -1 | awk '{print $6}' >/tmp/minor_nr.$NODE
+	done
+	count=$(sort -u /tmp/minor_nr.* | wc -l)
+	case $count in
+		1) _print 3 "**" "The minor number of NFS dir $expdir is equal on all nodes" ; _ok
+		   ;;
+		*) _print 3 "==" "The minor number of NFS dir $expdir is not the same on all nodes" ; _nok
+		   for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
+		   do
+			_note "On node $NODE the minor nr is $(cat /tmp/minor_nr.$NODE)"
+			rm -f /tmp/minor_nr.$NODE
+		   done
+	esac
 }
 
 function _check_node_enablement
@@ -2210,13 +2241,13 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	_check_nfs_present
 	if [[ ! -f /tmp/HANFS-TOOLKIT-not-present ]]; then
 		_check_nfs_supported_netids
-		_check_file_lock_migration
+		_check_file_lock_migration # this will check flm if required
 		_check_monitor_interval
 		_check_monitor_lockd_retry
 		_check_monitor_daemons_retry
 		_check_portmap_retry
-		_check_flm_holding_dir
-		_check_nfsv4_flm_holding_dir
+		#_check_flm_holding_dir
+		#_check_nfsv4_flm_holding_dir
 		_check_propagate_interval
 		_check_statmon_waittime
 		_check_nfs_xfs
