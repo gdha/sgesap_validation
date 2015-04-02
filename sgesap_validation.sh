@@ -2071,10 +2071,26 @@ function _show_locked_msg
 		    "0001000") _print 3 "==" "Account $1 seems to be locked (exceeded unsuccessful login attempts)" ; _warn ;;
 		    "0000100") _print 3 "==" "Account $1 seems to be locked (password required and a null password)" ; _warn ;;
 		    "0000010") _print 3 "==" "Account $1 seems to be locked (admin lock)" ; _warn ;;
+		    "1100001") _print 3 "==" "Account $1 seems to be wrongly created (tcb password entry is an *)" ; _warn ;;
+		    *)         _print 3 "==" "Account $1 seems to be locked" ; _warn ;;
 		esac
                 _note "Schedule exec: /usr/lbin/modprpw -k ${1}"
 		;;
         esac
+}
+
+function _check_oracle_account
+{
+	grep -q ^${oracle} /etc/passwd
+	if [[ $? -eq 0 ]]; then
+		account_is_expired=0
+		_is_account_locked ${oracle}
+		if [[ $? -eq 0 ]]; then
+			_show_locked_msg ${oracle}
+		else
+			_print 3 "**" "Account ${oracle} is useable" ; _ok
+		fi
+	fi
 }
 
 #########################################################################################################
@@ -2201,8 +2217,7 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	_check_vg_active	# more functions are called to anlyse fs_name; fs_directory
 
 	# when oracle account is present run a check if it is locked or not
-	account_is_expired=0
-	grep -q ^${oracle} /etc/passwd && _is_account_locked ${oracle} && _show_locked_msg ${oracle}
+	_check_oracle_account
 
 
 	if [[ TestSGeSAP -eq 1 ]]; then
