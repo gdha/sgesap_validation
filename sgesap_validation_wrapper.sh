@@ -32,7 +32,7 @@ typeset -r TMPFILE=/tmp/sgesap_validation_wrapper.$$
 typeset -r LOGFILE=/var/adm/log/package-validation-monitoring-results.log
 typeset -r COPYLOGFILE=/var/tmp/${PRGNAME%???}-$(date '+%Y%m%d-%H%M').log
 typeset    ovocmd=/opt/OV/bin/OpC/opcmsg
-typeset	   ToUser="DL-NCSBE-ITSGTSCMonitor3@ITS.JNJ.com"
+typeset	   ToUser="root"
 typeset -r SENDMAIL=/usr/lib/sendmail
 typeset    rc=0
 
@@ -255,9 +255,24 @@ function GenerateHTMLMail
     EndOfHtmlDocument
 }
 
+function _is_var_empty
+{
+	[[ -z "$1" ]] && return 1
+	return 0
+}
+
 ###
 ### MAIN
 ###
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-M) ToUser="$2"
+		    _is_var_empty "$ToUser" || ToUser="root"
+		    shift 2
+		    ;;
+	esac
+done
 
 {
 _banner "Wrapper script (and monitoring) around sgesap_validation.sh"
