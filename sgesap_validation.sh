@@ -38,6 +38,7 @@ typeset -x PKGname=""					# empty by default
 typeset -x PKGnameConf=""				# empty by default
 typeset -x TestSGeSAP=1					# Test the Serviceguard SGeSAP extention in the conf
 							# (by default we test SGeSAP stuff too) - use -s to turn off
+typeset -x oracle="oracle"				# default oracle account
 typeset -x orasid="UNKNOWN"				# define it to please SAP WebDispatcher
 typeset -x sidadm="UNKNOWN"				# define it to please SAP WebDispatcher
 typeset -x SAPWEBDISPATCHER=0				# SAP WebDispatcher check (is a subset of SGeSAP extention)
@@ -2198,6 +2199,11 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	_check_vg
 	_check_fs_lines
 	_check_vg_active	# more functions are called to anlyse fs_name; fs_directory
+
+	# when oracle account is present run a check if it is locked or not
+	account_is_expired=0
+	grep -q ^${oracle} /etc/passwd && _is_account_locked ${oracle} && _show_locked_msg ${oracle}
+
 
 	if [[ TestSGeSAP -eq 1 ]]; then
 		# continue with testing SGeSAP stuff in conf file
