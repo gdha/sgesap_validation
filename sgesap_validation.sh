@@ -5,7 +5,7 @@
 # This script checks the serviceguard configuration whether the
 # minimum parameters are setup correctly
 
-# $Id: $
+# $Id: sgesap_validation.sh,v 1.8 2015/04/02 12:47:36 gdhaese1 Exp $
 
 [[ -f /etc/cmcluster.conf ]] && . /etc/cmcluster.conf
 
@@ -49,7 +49,7 @@ typeset -x PKGstatus=""					# Package status can be up, down
 typeset -x account_is_expired=0				# we use this to indicate if an account has been expired (1)
 typeset -r SENDMAIL=/usr/lib/sendmail			# used by function GenerateHTMLMail
 typeset -x ERS_PACKAGE=0				# variable ERS_PACKAGE=1 means an ERS package (must have resource)
-
+typeset -x PKGrunningNode=""				# variable contains hostname on which package is running
 ########################################################################################################################
 #
 # Functions
@@ -597,9 +597,11 @@ function _check_package_running_on_node
 		# is it running on primary or alternate node?
 		if [[ "$(echo $Nodes_status | awk '{print $2}')" = "up" ]]; then
 			# package running on primary node
+			PKGrunningNode="$(echo $Nodes_status | awk '{print $1}' | cut -d. -f1)"
 			_print 3 "**" "Package ($PackageNameDefined) is running on primary node: $Nodes_status" ; _ok
 		else
 			# package running on alternate node
+			PKGrunningNode="$(echo $Nodes_status | awk '{print $3}' | cut -d. -f1)"
 			_print 3 "**" "Package ($PackageNameDefined) is running on alternate node: $Nodes_status" ; _warn
 		fi
 	else
@@ -1684,8 +1686,11 @@ function _check_file_lock_migration
 		_print 3 "==" "Missing nfs/hanfs_export/FILE_LOCK_MIGRATION in ${PKGname}.conf (use \"1\")" ; _warn
 	elif [[ $FileLockMigrationDefined -eq 1 ]]; then
 		_print 3 "**" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined" ; _ok
-		_check_flm_holding_dir
-		_check_nfsv4_flm_holding_dir
+		if [[ "$(uname -n)" = "$PKGrunningNode" ]] ; then
+			# only run the FLM holding dir check if package is running on this node
+			_check_flm_holding_dir
+			_check_nfsv4_flm_holding_dir
+		fi
 	else
 		_print 3 "**" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined ($FileLockMigrationDefined)" ; _ok
 	fi
@@ -1696,7 +1701,7 @@ function _check_flm_holding_dir
 	FlmHoldingDir=$(grep "^nfs/hanfs_flm/FLM_HOLDING_DIR" $PKGnameConf | awk '{print $2}' | sed -e 's/"//g')
 	if [[ -z "$FlmHoldingDir" ]]; then
 		_print 3 "==" "Missing nfs/hanfs_flm/FLM_HOLDING_DIR in ${PKGname}.conf (use /export/sapmnt/${DbSystemDefined}/nfs_flm)" ; _warn
-	elif [[ ! -d $FlmHoldingDir ]]; then
+	elif [[ ! -d "$FlmHoldingDir" ]]; then
 		_print 3 "==" "nfs/hanfs_flm/FLM_HOLDING_DIR $FlmHoldingDir (directory not found!)" ; _nok
 	else
 		_print 3 "**" "nfs/hanfs_flm/FLM_HOLDING_DIR $FlmHoldingDir" ; _ok
