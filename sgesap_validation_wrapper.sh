@@ -5,7 +5,7 @@
 # to trim the output to the bare essentials
 # When we encountered errors (exit code >1) then we may send a message to the OVO console (TBD)
 
-# $Id: $
+# $Id: sgesap_validation_wrapper.sh,v 1.3 2015/04/02 10:40:30 gdhaese1 Exp $
 
 ###
 ### paramaters
@@ -27,7 +27,7 @@ typeset -r platform=$(uname -s)                         # Platform
 typeset -r model=$(uname -m)                            # Model
 typeset -r HOSTNAME=$(uname -n)                         # hostname
 typeset os=$(uname -r); os=${os#B.}                     # e.g. 11.31
-typeset -r SGESAP_VAL_SCRIPT=/home/gdhaese1/bin/sgesap_validation.sh
+typeset -r SGESAP_VAL_SCRIPT="$PRGDIR/sgesap_validation.sh"
 typeset -r TMPFILE=/tmp/sgesap_validation_wrapper.$$
 typeset -r LOGFILE=/var/adm/log/package-validation-monitoring-results.log
 typeset -r COPYLOGFILE=/var/tmp/${PRGNAME%???}-$(date '+%Y%m%d-%H%M').log

@@ -1686,7 +1686,7 @@ function _check_file_lock_migration
 		_print 3 "==" "Missing nfs/hanfs_export/FILE_LOCK_MIGRATION in ${PKGname}.conf (use \"1\")" ; _warn
 	elif [[ $FileLockMigrationDefined -eq 1 ]]; then
 		_print 3 "**" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined" ; _ok
-		if [[ "$(uname -n)" = "$PKGrunningNode" ]] ; then
+		if [[ "$HOSTNAME" = "$PKGrunningNode" ]] ; then
 			# only run the FLM holding dir check if package is running on this node
 			_check_flm_holding_dir
 			_check_nfsv4_flm_holding_dir
