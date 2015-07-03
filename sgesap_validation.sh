@@ -50,6 +50,8 @@ typeset -x account_is_expired=0				# we use this to indicate if an account has b
 typeset -r SENDMAIL=/usr/lib/sendmail			# used by function GenerateHTMLMail
 typeset -x ERS_PACKAGE=0				# variable ERS_PACKAGE=1 means an ERS package (must have resource)
 typeset -x PKGrunningNode=""				# variable contains hostname on which package is running
+set -A NODES						# set up array which contains the nodes where package can run on
+typeset -x NODES					# export the NODES array
 ########################################################################################################################
 #
 # Functions
@@ -470,6 +472,17 @@ function _continentalClusterAware
 	fi
 }
 
+function _define_nodes_array
+{
+	# NODES array is global defined
+	i=0
+	for node in $(cmviewcl -fline -lnode | grep name= | cut -d= -f2)
+	do
+		NODES[$i]="$node"
+		i=$((i+1))
+	done
+}
+
 function _find_and_print_x_lines
 {
 	# find a keyword (string) and print x nr of lines after that keyword (line of keyword included)
@@ -636,7 +649,7 @@ function _check_package_defined_in_hosts_file
 	if [[ -z $PackageNameDefined ]]; then
 		_print 3 "==" "Empty package_name - cannot check /etc/hosts file" ; _nok
 	else
-		for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
+		for NODE in ${NODES[@]}
 		do
 			_debug "Checking on node $NODE the /etc/hosts file"
 			cmdo -n $NODE grep "$PackageNameDefined" /etc/hosts | grep -v "^\#" | while read Line
@@ -1136,6 +1149,7 @@ function _check_vg_active
 		rc=$?
 		if [[ $rc -eq 0 ]]; then
 			_print 3 "**" "VG ${VgDefined[i]} is active on this node"; _ok
+			_check_vg_minornr ${VgDefined[i]}
 			_check_fs_name ${VgDefined[i]}
 			_check_fs_directory "${VgDefined[i]}"
 		else
@@ -1143,6 +1157,35 @@ function _check_vg_active
 			_print 3 "**" "We will skip lvol and fs in-depth analysis; rerun when VG is active" ; _skip
 		fi
 		i=$((i+1))
+	done
+}
+
+function _check_vg_minornr
+{
+	# input arg1 VG
+	# we gonna verify if major/minor nr of VG is unique on this host and that it is the same
+	# on the other nodes (where package can run on)
+	typeset -i rc
+	typeset VG="$1"
+	major=$(ls -l $VG/group 2>/dev/null | awk '{print $5}')
+	minor=$(ls -l $VG/group 2>/dev/null | awk '{print $6}')
+	count=$(ls -l /dev/*/group | grep "$minor" | wc -l)
+	if [[ $count -ne 1 ]]; then
+		_print 3 "==" "The VG $VG minor number ($minor) is not unique on $(hostname)" ; _nok
+	else
+		_print 3 "**" "The VG $VG minor number ($minor) is unique on $(hostname)" ; _ok
+	fi
+	# cmdo -n beusap02 ls -l /dev/vgdbBSC1/group | grep "0x260000"
+	for NODE in ${NODES[@]}
+	do
+		[[ "$NODE" = "$(hostname)" ]] && continue  # we check other nodes against this host
+		# tail -1 is required because cmdo returns a blank line and then the result of the cmdo cmd
+		rminor=$(/usr/sbin/cmdo -n $NODE ls -l $VG/group 2>/dev/null | tail -1 | awk '{print $6}')
+		if [[ "$minor" = "$rminor" ]]; then
+			_print 3 "**" "The VG $VG minor number ($rminor) on node $NODE is the same" ; _ok
+		else
+			_print 3 "==" "The VG $VG minor number ($rminor) on node $NODE is not the same (should be $minor)"; _nok
+		fi
 	done
 }
 
@@ -1632,7 +1675,7 @@ function _check_sapms_service
 {
 	# sapmsXSG        3610/tcp        # SAP System Message Server Port (in /etc/services)
 	[[ -z "${DbSystemDefined}" ]] && return		# no SID defined
-	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
+	for NODE in ${NODES[@]}
 	do
 		SapmsServiceDefined=$(cmdo -n $NODE -t 10 grep "^sapms${DbSystemDefined}[[:blank:]]" /etc/services | grep -v "^\#" | awk '{print $2}')
 		_debug "Checking /etc/services for sapms${DbSystemDefined}"
@@ -1910,7 +1953,7 @@ function _check_netids_in_auto_direct
 	# SID=$DbSystemDefined
 	
 	# we need to check on all nodes the /etc/auto.direct file
-	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
+	for NODE in ${NODES[@]}
 	do
 		_debug "Checking on node $NODE the /etc/auto.direct file"
 		cmdo -n $NODE grep "$DbSystemDefined" /etc/auto.direct | grep -v "^\#" | while read Line
@@ -1953,7 +1996,7 @@ function _check_commented_sapmnt_in_auto_direct
 	fi
 
 	# we need to check on all nodes the /etc/auto.direct file
-	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
+	for NODE in ${NODES[@]}
 	do
 		_debug "Checking on node $NODE the /etc/auto.direct file for commented sapmnt entries"
 		cmdo -n $NODE grep "$DbSystemDefined" /etc/auto.direct | grep "^\#" | while read Line
@@ -1988,7 +2031,7 @@ function _check_minor_number
 	# map the expdir to its VG/lvol
 	lvolexpdir=$(mount -l | grep $expdir | awk '{print $3}')
 	# check minor number on both nodes as this could lead to stale NFS issues
-	for NODE in $( cmviewcl -fline -lnode | grep name= | cut -d= -f2 )
+	for NODE in ${NODES[@]}
 	do
 		_debug "Checking minor number of export NFS mount point on node $NODE"
 		cmdo -n $NODE ls -ld $lvolexpdir | tail -1 | awk '{print $6}' >/tmp/minor_nr.$NODE
@@ -2185,6 +2228,7 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	if [[ "$PKGstatus" = "up" ]] || [[ "$PKGstatus" = "down" ]]; then
 		_check_node_enablement
 	fi
+	_define_nodes_array		# populate the NODES[] array
 	# check if package is running on primary node or on an alternate node (informative)
 	_check_package_running_on_node
 	_check_package_name
@@ -2339,7 +2383,8 @@ echo $LOGFILE > /tmp/sgesap_validation_LOGFILE.name
 #
 # cleanup
 #
-rm -f /tmp/ERRcode.sgesap /tmp/isPkgConfigured.txt
+rm -f /tmp/ERRcode.sgesap /tmp/isPkgConfigured.txt /tmp/isPkgRunning.txt
 rm -f /tmp/HANFS-TOOLKIT-not-present /tmp/_check_nslookup_address.txt
+rm -f rm -f /tmp/ip_monitor.*
 # The END - the exit code will be picked up by monitor script
 exit $ERRcode
