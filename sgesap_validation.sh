@@ -1053,7 +1053,14 @@ function _check_user_name
 	do
 		id ${UserNameDefined[$i]} >/dev/null 2>&1
 		if [[ $? -ne 0 ]]; then
-			_print 3 "==" "user_name ${UserNameDefined[$i]} is not a valid user!"; _nok
+			_print 3 "==" "user_name ${UserNameDefined[$i]} is not a valid user!" 
+			grep -q -i ${UserNameDefined[$i]} /etc/passwd
+			if [[ $? -eq 0 ]]; then
+				_warn
+				_note "Username mismatch: check ${PKGname}.conf (${UserNameDefined[$i]}) vs. passwd entry ($(grep -i ${UserNameDefined[$i]} /etc/passwd | cut -d: -f1))"
+			else
+				_nok
+			fi
 		else
 			_print 3 "**" "user_name ${UserNameDefined[$i]} seems valid"; _ok
 		fi
@@ -1228,14 +1235,28 @@ function _check_fs_directory
 {
 	# input arg1 VG
 	typeset VG="$1"
+	rc=0
 	grep "^fs_directory" $PKGnameConf | awk '{print $2}' | while read dir
 	do
 		_debug "Checking fs_directory=$dir"
-		if [[ "$PKGstatus" = "up" ]]; then
-			if [[ ! -d $dir ]]; then
-				_print 3 "==" "Mount path $dir does not exist" ; _nok
+		# checking the mount paths on all nodes (must be present)
+		for NODE in ${NODES[@]}
+		do
+			cmdo -n $NODE [[ -d "$dir" ]] 2>/dev/null 1>&2  # we do not want any output
+			if [[ $? -ne 0 ]]; then
+				_print 3 "==" "Mount path $dir does not exist on node $NODE" ; _nok
+				rc=$((rc+1))
 			fi
-		fi
+		done
+	done
+	if [[ $rc -eq 0 ]] ; then
+		_print 3 "**" "All Mount Paths were found on ALL nodes" ; _ok
+	fi
+
+	# now checking if dir is mounted on this node
+	rc=0
+	grep "^fs_directory" $PKGnameConf | awk '{print $2}' | while read dir
+	do
 		# retrieve list of mounted FS (excl. NFS mounted)
 		mount -v | grep -v NFSv | awk '{print $1, $3}' > /tmp/mount-VG-dirs
 		# grep the dir - mind the $ to avoid sub-strings!
@@ -1248,10 +1269,14 @@ function _check_fs_directory
 			if [[ "$PKGstatus" = "down" ]]; then
 				_debug "File system $dir is not mounted as package status is down"
 			else
+				rc=$((rc+1))
 				_print 3 "==" "fs_directory=$dir is not mounted (package status=$PKGstatus)" ; _warn
 			fi
 		fi
 	done
+	if [[ $rc -eq 0 ]] ; then
+		_print 3 "**" "All file systems are mounted on $(hostname)" ; _ok
+	fi
 	rm -f /tmp/mount-VG-dirs
 }
 
