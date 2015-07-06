@@ -1481,6 +1481,30 @@ function _check_orasid_homedir
 	fi
 }
 
+function _check_uid_gid
+{
+	# purpose is to verify if the UID and GID are the samen of sidadm on both nodes
+	l_uid=$(id -u $1)
+	l_gid=$(id -g $1)
+	_debug "Verify UID/GID are the same on all nodes"
+	# we count the lines across of nodes - it should be 1, if not then the uid/gid is not the same
+	count_uid=$(cmdo id -u $1 2>/dev/null | grep -v \# | sed -e '/^$/d' | uniq |wc -l)
+	count_gid=$(cmdo id -g $1 2>/dev/null | grep -v \# | sed -e '/^$/d' | uniq |wc -l)
+	if (( count_uid > 1 )); then
+		 _print 3 "==" "The UID of $1 is not the same on ${NODES[@]}"; _nok
+		 cmdo id -u $1 2>/dev/null
+	else
+		_print 3 "**" "The UID of $1 is the same on ${NODES[@]}" ; _ok
+	fi
+	if (( count_gid > 1 )); then
+		_print 3 "==" "The GID of $1 is not the same on ${NODES[@]}"; _nok
+		cmdo id -g $1 2>/dev/null
+	else
+		_print 3 "**" "The GID of $1 is the same on ${NODES[@]}" ; _ok
+	fi
+
+}
+
 function _check_authorized_keys
 {
 	# check if var $1 (orasid or sidadm) homedir contains .ssh directory
@@ -2316,6 +2340,7 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 		# check the SSH keys (if in use)
 		[[ "${orasid}" != "UNKNOWN" ]] && _check_authorized_keys ${orasid}
 		[[ "${sidadm}" != "UNKNOWN" ]] && _check_authorized_keys ${sidadm}
+		[[ "${sidadm}" != "UNKNOWN" ]] && _check_uid_gid ${sidadm}
 		# function to check sidadm startdb.log ownership (if root is owner then SAP will not start)
 		_check_startdb_log_ownership
 		_check_stopdb_log_ownership
