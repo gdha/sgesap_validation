@@ -50,6 +50,7 @@ typeset -x account_is_expired=0				# we use this to indicate if an account has b
 typeset -r SENDMAIL=/usr/lib/sendmail			# used by function GenerateHTMLMail
 typeset -x ERS_PACKAGE=0				# variable ERS_PACKAGE=1 means an ERS package (must have resource)
 typeset -x PKGrunningNode=""				# variable contains hostname on which package is running
+typeset -x PKG_runs_on_primary=0			# variable is 1 when PKG runs on primary node (0 is alternate)
 set -A NODES						# set up array which contains the nodes where package can run on
 typeset -x NODES					# export the NODES array
 ########################################################################################################################
@@ -611,10 +612,12 @@ function _check_package_running_on_node
 		if [[ "$(echo $Nodes_status | awk '{print $2}')" = "up" ]]; then
 			# package running on primary node
 			PKGrunningNode="$(echo $Nodes_status | awk '{print $1}' | cut -d. -f1)"
+			PKG_runs_on_primary=1
 			_print 3 "**" "Package ($PackageNameDefined) is running on primary node: $Nodes_status" ; _ok
 		else
 			# package running on alternate node
 			PKGrunningNode="$(echo $Nodes_status | awk '{print $3}' | cut -d. -f1)"
+			PKG_runs_on_primary=0
 			_print 3 "**" "Package ($PackageNameDefined) is running on alternate node: $Nodes_status" ; _warn
 		fi
 	else
@@ -625,8 +628,11 @@ function _check_package_running_on_node
 function _check_ers_package
 {
 	# verify if $PackageNameDefined contains "ers" or not (indicates an ERS package for SAPdb
-	echo "$PackageNameDefined" | grep -i -q ers && ERS_PACKAGE=1
-	_note "Package $PackageNameDefined seems to be an ERS package"
+	echo "$PackageNameDefined" | grep -i -q ers
+	if [[ $? -eq 0 ]]; then
+		ERS_PACKAGE=1
+		_note "Package $PackageNameDefined seems to be an ERS package"
+	fi
 }
 
 function _check_ip_monitor
@@ -1305,7 +1311,7 @@ function _check_resource_lines
 	count=$(wc -l /tmp/resources_${PKGname} | awk '{print $1}')
 	if [[ $count -eq 0 ]] && [[ $ERS_PACKAGE -eq 1 ]]; then
 		_print 3 "==" "Expecting 4 resource lines for ERS package in ${PKGnameConf}" ; _nok
-		_note "resource_name                   /applications/sap/enqor/<SID>ers<nr>"
+		_note "resource_name                   /applications/sap/enqor/[SID]ers[nr]"
 		_note "resource_polling_interval       60"
 		_note "resource_start                  automatic"
 		_note "resource_up_value               != SERVING"
@@ -1362,6 +1368,7 @@ function _check_sap_modules
 function _check_db_vendor
 {
 	DbVendorDefined=$(grep "^sgesap/db_global/db_vendor" $PKGnameConf | awk '{print $2}')
+	[[ $ERS_PACKAGE -eq 1 ]] && return  # ERS packages do not need a database definition
 	if [[ -z "$DbVendorDefined" ]]; then
 		_print 3 "==" "sgesap/db_global/db_vendor not defined in ${PKGname}.conf (set \"oracle\")" ; _nok
 	elif [[ "$DbVendorDefined" = "oracle" ]]; then
@@ -1375,8 +1382,11 @@ function _check_db_vendor
 function _check_db_system
 {
 	DbSystemDefined=$(grep "^sgesap/db_global/db_system" $PKGnameConf | awk '{print $2}')
+	# TODO
+	#[[ $ERS_PACKAGE -eq 1 ]] && return  # ERS packages do not need a database definition
+	
 	if [[ -z "$DbSystemDefined" ]]; then
-		_print 3 "==" "sgesap/db_global/db_system not defined in ${PKGname}.conf (set \"<SID>\")" ; _nok
+		_print 3 "==" "sgesap/db_global/db_system not defined in ${PKGname}.conf (set \"[SID]\")" ; _nok
 		orasid=UNKNOWN
 		sidadm=UNKNOWN
 		return
@@ -1531,8 +1541,13 @@ function _check_authorized_keys
 	esac
 	# check ownership
 	if [[ "$(ls -ld ${homedir} | awk '{print $3}')" != "${1}" ]]; then
-		_print 3 "==" "Ownership is not correct of ${homedir} (must be ${1}" ; _nok
-		_note "Schedule exec: chown -R ${1} ${homedir}"
+		if [[ $PKG_runs_on_primary -eq 0 ]]; then
+			# if pkg runs on alternate node - show skip
+			_print 3 "==" "Ownership is not correct of ${homedir} (must be ${1})" ; _skip
+		else
+			_print 3 "==" "Ownership is not correct of ${homedir} (must be ${1})" ; _nok
+			_note "Schedule exec: chown -R ${1} ${homedir}"
+		fi
 	else
 		_debug "Ownership of ${homedir} is correct"
 	fi
@@ -1603,8 +1618,9 @@ function _check_ora_authorized_keys
 function _check_listener_name
 {
 	ListernerNameDefined=$(grep "^sgesap/oracledb_spec/listener_name" $PKGnameConf | awk '{print $2}')
+	[[ $ERS_PACKAGE -eq 1 ]] && return  # ERS packages do not need a database definition
 	if [[ -z "$ListernerNameDefined" ]]; then
-		_print 3 "==" "sgesap/oracledb_spec/listener_name not defined in ${PKGname}.conf (set \"LISTENER_<SID>\")" ; _nok
+		_print 3 "==" "sgesap/oracledb_spec/listener_name not defined in ${PKGname}.conf (set \"LISTENER_[SID]\")" ; _nok
 	elif [[ "$ListernerNameDefined" = "LISTENER_${DbSystemDefined}" ]]; then
 		_print 3 "**" "sgesap/oracledb_spec/listener_name $ListernerNameDefined" ; _ok
 	else
@@ -1617,12 +1633,16 @@ function _check_sap_system
 {
 	SapSystemDefined=$(grep "^sgesap/sap_global/sap_system" $PKGnameConf | awk '{print $2}')
 	if [[ -z "$SapSystemDefined" ]]; then
-		_print 3 "==" "sgesap/sap_global/sap_system not defined in ${PKGname}.conf (set \"<SID>\")" ; _nok
+		_print 3 "==" "sgesap/sap_global/sap_system not defined in ${PKGname}.conf (set \"[SID]\")" ; _nok
 	elif [[ "$SapSystemDefined" = "$DbSystemDefined" ]]; then
 		_print 3 "**" "sgesap/sap_global/sap_system $SapSystemDefined" ; _ok
 	else
 		if [[ -z "$DbSystemDefined" ]]; then
-			_print 3 "**" "sgesap/sap_global/sap_system $SapSystemDefined (ers package?)" ; _ok
+			if [[ $ERS_PACKAGE -eq 1 ]]; then
+				_print 3 "**" "sgesap/sap_global/sap_system $SapSystemDefined (ERS package)" ; _ok
+			else
+				_print 3 "==" "sgesap/sap_global/sap_system $SapSystemDefined (set \"[SID]\")" ; _nok
+			fi
 		else
 			_print 3 "==" "sgesap/sap_global/sap_system $SapSystemDefined (should be $DbSystemDefined)"; _nok
 		fi
@@ -1650,6 +1670,18 @@ function _check_cleanup_policy
 		_print 3 "**" "sgesap/sap_global/cleanup_policy $CleanupPolicyDefined" ; _ok
 	else
 		_print 3 "==" "sgesap/sap_global/cleanup_policy $CleanupPolicyDefined (should be \"normal\")" ; _nok
+	fi
+}
+
+function _check_sapcontrol_usage
+{
+	SapControlUsageDefined=$(grep "^sgesap/sap_global/sapcontrol_usage" $PKGnameConf | awk '{print $2}')
+	if [[ -z "$SapControlUsageDefined" ]]; then
+		_print 3 "==" "sgesap/sap_global/sapcontrol_usage not defined in ${PKGname}.conf (set \"preferred\")"; _nok
+	elif [[ "$SapControlUsageDefined" = "preferred" ]]; then
+		_print 3 "**" "sgesap/sap_global/sapcontrol_usage $SapControlUsageDefined"; _ok
+	else
+		_print 3 "==" "sgesap/sap_global/sapcontrol_usage $SapControlUsageDefined (set \"preferred\")"; _warn
 	fi
 }
 
@@ -2049,8 +2081,8 @@ function _check_commented_sapmnt_in_auto_direct
 	# purpose of this function is to display any /sapmnt/SID line which is commented in /etc/auto.direct
 	# SID=$DbSystemDefined
 	[[ -z "$DbSystemDefined" ]] && return
-	if [[ "$DbSystemDefined" = "<SID>" ]]; then
-		_print 3 "**" "Cannot find \"<SID>\" in /etc/auto.direct" ; _skip
+	if [[ "$DbSystemDefined" = "[SID]" ]]; then
+		_print 3 "**" "Cannot find \"[SID]\" in /etc/auto.direct" ; _skip
 		return
 	fi
 
@@ -2074,7 +2106,7 @@ function _check_commented_sapmnt_in_auto_direct
 function _check_dfstab
 {
 	# check if we did not foresee a manual share in /etc/dfs/dfstab
-	[[ "$DbSystemDefined" = "<SID>" ]] && return
+	[[ "$DbSystemDefined" = "[SID]" ]] && return
 	[[ -z "$DbSystemDefined" ]] && return
 	grep "$DbSystemDefined" /etc/dfs/dfstab | grep -v "^\#" | while read Line
 	do
@@ -2359,6 +2391,7 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 		_check_sap_system
 		_check_rem_comm
 		_check_cleanup_policy
+		_check_sapcontrol_usage
 		_check_retry_count
 		_check_sap_instance
 		_check_sap_virtual_hostname
