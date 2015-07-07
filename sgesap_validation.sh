@@ -625,7 +625,8 @@ function _check_package_running_on_node
 function _check_ers_package
 {
 	# verify if $PackageNameDefined contains "ers" or not (indicates an ERS package for SAPdb
-	echo "$PackageNameDefined" | grep -i ers && ERS_PACKAGE=1
+	echo "$PackageNameDefined" | grep -i -q ers && ERS_PACKAGE=1
+	_note "Package $PackageNameDefined seems to be an ERS package"
 }
 
 function _check_ip_monitor
@@ -1244,7 +1245,7 @@ function _check_fs_directory
 		do
 			cmdo -n $NODE [[ -d "$dir" ]] 2>/dev/null 1>&2  # we do not want any output
 			if [[ $? -ne 0 ]]; then
-				_print 3 "==" "Mount path $dir does not exist on node $NODE" ; _nok
+				_print 3 "==" "Mount path $dir does not exist on node $NODE" ; _warn
 				rc=$((rc+1))
 			fi
 		done
@@ -1304,6 +1305,10 @@ function _check_resource_lines
 	count=$(wc -l /tmp/resources_${PKGname} | awk '{print $1}')
 	if [[ $count -eq 0 ]] && [[ $ERS_PACKAGE -eq 1 ]]; then
 		_print 3 "==" "Expecting 4 resource lines for ERS package in ${PKGnameConf}" ; _nok
+		_note "resource_name                   /applications/sap/enqor/<SID>ers<nr>"
+		_note "resource_polling_interval       60"
+		_note "resource_start                  automatic"
+		_note "resource_up_value               != SERVING"
 		return
 	fi
 	modulus=$((count%4))  # 4 lines gives 0; otherwise remainder
@@ -1960,11 +1965,16 @@ function _check_ext_scripts
 	do
 		extscript=${extscript##*/}
 		_debug "external_script $SGCONF/$extscript defined in ${PKGname}.conf"
-		if [[ -f ${SGCONF}/scripts/ext/${extscript} ]]; then
-			_print 3 "**" "\$SGCONF/scripts/ext/${extscript} defined in ${PKGname}.conf" ; _ok
-		else
-			_print 3 "==" "\$SGCONF/scripts/ext/${extscript} not found on this node!" ; _nok
-		fi
+
+		for NODE in ${NODES[@]}
+		do
+			cmdo -n $NODE [[ -f ${SGCONF}/scripts/ext/${extscript} ]] >/dev/null 2>&1  # we do not want any output
+			if [[ $? -eq 0 ]]; then
+				_print 3 "**" "\$SGCONF/scripts/ext/${extscript} defined and found on node $NODE" ; _ok
+			else
+				_print 3 "==" "\$SGCONF/scripts/ext/${extscript} not found on this node ${NODE}" ; _nok
+			fi
+		done
 	done
 }
 
