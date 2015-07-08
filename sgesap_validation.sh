@@ -5,7 +5,7 @@
 # This script checks the serviceguard configuration whether the
 # minimum parameters are setup correctly
 
-# $Id: sgesap_validation.sh,v 1.8 2015/04/02 12:47:36 gdhaese1 Exp $
+# $Id: sgesap_validation.sh,v 1.11 2015/07/08 13:08:39 gdhaese1 Exp $
 
 [[ -f /etc/cmcluster.conf ]] && . /etc/cmcluster.conf
 
