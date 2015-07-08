@@ -50,7 +50,6 @@ typeset -x account_is_expired=0				# we use this to indicate if an account has b
 typeset -r SENDMAIL=/usr/lib/sendmail			# used by function GenerateHTMLMail
 typeset -x ERS_PACKAGE=0				# variable ERS_PACKAGE=1 means an ERS package (must have resource)
 typeset -x PKGrunningNode=""				# variable contains hostname on which package is running
-typeset -x PKG_runs_on_primary=0			# variable is 1 when PKG runs on primary node (0 is alternate)
 set -A NODES						# set up array which contains the nodes where package can run on
 typeset -x NODES					# export the NODES array
 ########################################################################################################################
@@ -612,12 +611,10 @@ function _check_package_running_on_node
 		if [[ "$(echo $Nodes_status | awk '{print $2}')" = "up" ]]; then
 			# package running on primary node
 			PKGrunningNode="$(echo $Nodes_status | awk '{print $1}' | cut -d. -f1)"
-			PKG_runs_on_primary=1
 			_print 3 "**" "Package ($PackageNameDefined) is running on primary node: $Nodes_status" ; _ok
 		else
 			# package running on alternate node
 			PKGrunningNode="$(echo $Nodes_status | awk '{print $3}' | cut -d. -f1)"
-			PKG_runs_on_primary=0
 			_print 3 "**" "Package ($PackageNameDefined) is running on alternate node: $Nodes_status" ; _warn
 		fi
 	else
@@ -1541,12 +1538,12 @@ function _check_authorized_keys
 	esac
 	# check ownership
 	if [[ "$(ls -ld ${homedir} | awk '{print $3}')" != "${1}" ]]; then
-		if [[ $PKG_runs_on_primary -eq 0 ]]; then
-			# if pkg runs on alternate node - show skip
-			_print 3 "==" "Ownership is not correct of ${homedir} (must be ${1})" ; _skip
-		else
+		if [[ "$HOSTNAME" = "$PKGrunningNode" ]] ; then
 			_print 3 "==" "Ownership is not correct of ${homedir} (must be ${1})" ; _nok
 			_note "Schedule exec: chown -R ${1} ${homedir}"
+		else
+			# if pkg runs on other node - show skip
+			_print 3 "==" "Package runs on node ${HOSTNAME}, therefore, ownership of ${homedir} not checked " ; _skip
 		fi
 	else
 		_debug "Ownership of ${homedir} is correct"
