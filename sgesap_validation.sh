@@ -624,7 +624,7 @@ function _check_package_running_on_node
 
 function _check_ers_package
 {
-	# verify if $PackageNameDefined contains "ers" or not (indicates an ERS package for SAPdb
+	# verify if $PackageNameDefined contains "ers" or not (indicates an ERS package for SAPdb)
 	echo "$PackageNameDefined" | grep -i -q ers
 	if [[ $? -eq 0 ]]; then
 		ERS_PACKAGE=1
@@ -1379,8 +1379,7 @@ function _check_db_vendor
 function _check_db_system
 {
 	DbSystemDefined=$(grep "^sgesap/db_global/db_system" $PKGnameConf | awk '{print $2}')
-	# TODO
-	#[[ $ERS_PACKAGE -eq 1 ]] && return  # ERS packages do not need a database definition
+	[[ $ERS_PACKAGE -eq 1 ]] && return  # ERS packages do not need a database definition
 	
 	if [[ -z "$DbSystemDefined" ]]; then
 		_print 3 "==" "sgesap/db_global/db_system not defined in ${PKGname}.conf (set \"[SID]\")" ; _nok
@@ -1470,6 +1469,8 @@ function _check_stopdb_log_ownership
 function _check_orasid_homedir
 {
 	if [[ "$orasid" = "UNKNOWN" ]]; then
+		[[ $ERS_PACKAGE -eq 1 ]] && return  # ERS package does not need an oracle account
+
 		_print 3 "==" "Home directory of oraSID is unknown (webdispatcher perhaps?)" ; _skip
 		return
 	fi
@@ -1672,9 +1673,12 @@ function _check_cleanup_policy
 
 function _check_sapcontrol_usage
 {
+	# this check is not mandatory, if the line is not set, nothing harmful is done
+	# however, we noticed, when defined "preferred" then we could do online cmapplyconf, otherwise,
+	# wew just get an error it is not possible (or something in that sense)
 	SapControlUsageDefined=$(grep "^sgesap/sap_global/sapcontrol_usage" $PKGnameConf | awk '{print $2}')
 	if [[ -z "$SapControlUsageDefined" ]]; then
-		_print 3 "==" "sgesap/sap_global/sapcontrol_usage not defined in ${PKGname}.conf (set \"preferred\")"; _nok
+		_print 3 "==" "sgesap/sap_global/sapcontrol_usage not defined in ${PKGname}.conf (set \"preferred\")"; _warn
 	elif [[ "$SapControlUsageDefined" = "preferred" ]]; then
 		_print 3 "**" "sgesap/sap_global/sapcontrol_usage $SapControlUsageDefined"; _ok
 	else
@@ -1729,9 +1733,26 @@ function _check_sap_virtual_hostname
 	done
 }
 
+function _check_sap_replicated_instance
+{
+	grep -q "^sgesap/stack/sap_replicated_instance" $PKGnameConf
+	if [[ $? -ne 0 ]]; then
+		_print 3 "==" "Missing sgesap/stack/sap_replicated_instance in ${PKGname}.conf" ; _nok
+	fi
+	grep "^sgesap/stack/sap_replicated_instance" $PKGnameConf | awk '{print $2}' | while read SapReplicatedInstance
+	do
+		if [[ -z "$SapReplicatedInstance" ]]; then
+			_print 3 "==" "sgesap/stack/sap_replicated_instance not defined in ${PKGname}.conf" ; _nok
+		else
+			_print 3 "**" "sgesap/stack/sap_replicated_instance $SapReplicatedInstance" ; _ok
+		fi
+	done
+}
+
 function _check_sap_infra_sw_type
 {
 	SapInfraSwTypeDefined=$(grep "^sgesap/sapinfra/sap_infra_sw_type" $PKGnameConf | awk '{print $2}' | tr 'A-Z' 'a-z')
+	[[ $ERS_PACKAGE -eq 1 ]] && return  # ERS package does not need this
 	if [[ -z "$SapInfraSwTypeDefined" ]]; then
 		_print 3 "==" "sgesap/sapinfra/sap_infra_sw_type not defined in ${PKGname}.conf (use \"saposcol\")" ; _nok
 	elif [[ "$SapInfraSwTypeDefined" = "saposcol" ]]; then
@@ -1745,6 +1766,7 @@ function _check_sap_infra_sw_type
 function _check_sap_infra_sw_treat
 {
 	SapInfraSwTreatDefined=$(grep "^sgesap/sapinfra/sap_infra_sw_treat" $PKGnameConf | awk '{print $2}' | tr 'A-Z' 'a-z')
+	[[ $ERS_PACKAGE -eq 1 ]] && return  # ERS package does not need this
 	if [[ -z "$SapInfraSwTreatDefined" ]]; then
 		_print 3 "==" "sgesap/sapinfra/sap_infra_sw_treat not defined in ${PKGname}.conf (use \"startonly\")" ; _nok
 	elif [[ "$SapInfraSwTreatDefined" = "startonly" ]]; then
@@ -2392,6 +2414,7 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 		_check_retry_count
 		_check_sap_instance
 		_check_sap_virtual_hostname
+		[[ $ERS_PACKAGE -eq 1 ]] && _check_sap_replicated_instance
 		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_sap_infra_sw_type
 		[[ $SAPWEBDISPATCHER -eq 0 ]] && _check_sap_infra_sw_treat
 	fi
