@@ -295,7 +295,7 @@ do
 	
 	# we make now the assumption if $pkg contains a 'db' string we are dealing with SAP
 	case $pkg in
-	   *db*|*DB*)
+	   *db*|*DB*|ers*)
 		$SGESAP_VAL_SCRIPT -m $pkg
 		ERRORS=$?
 		;;
