@@ -5,7 +5,7 @@
 # This script checks the serviceguard configuration whether the
 # minimum parameters are setup correctly
 
-# $Id: sgesap_validation.sh,v 1.11 2015/07/08 13:08:39 gdhaese1 Exp $
+# $Id: sgesap_validation.sh,v 1.12 2015/08/05 15:13:01 gdhaese1 Exp $
 
 [[ -f /etc/cmcluster.conf ]] && . /etc/cmcluster.conf
 
@@ -149,12 +149,21 @@ function _line
 	echo
 }
 
+function _versionnr
+{
+	# will display the version number of this script
+	typeset rev
+	rev=$(awk '/\$Id: sgesap_validation.sh,v 1.12 2015/08/05 15:13:01 gdhaese1 Exp $4 }' $PRGDIR/$PRGNAME | head -1)
+	[[ -n "$rev" ]] || rev="\"Under Development\""
+	echo "$PRGNAME revision $rev"
+}
+
 function _banner
 {
 	# arg1 "string to print next to Purpose"
 	cat - <<-EOD
 	$(_line "#")
-	$(_print 22 "Script:" "$PRGNAME")
+	$(_print 22 "Script:" "$(_versionnr)")
 	$(_print 22 "Arguments:" "$ARGS")
 	$(_print 22 "Purpose:" "$1")
 	$(_print 22 "OS Release:" "$os")
@@ -1638,6 +1647,8 @@ function _check_sap_system
 		if [[ -z "$DbSystemDefined" ]]; then
 			if [[ $ERS_PACKAGE -eq 1 ]]; then
 				_print 3 "**" "sgesap/sap_global/sap_system $SapSystemDefined (ERS package)" ; _ok
+			elif [[ $SAPWEBDISPATCHER -eq 1 ]]; then
+				_print 3 "**" "sgesap/sap_global/sap_system $SapSystemDefined (webdisplatcher package)" ; _ok
 			else
 				_print 3 "==" "sgesap/sap_global/sap_system $SapSystemDefined (set \"[SID]\")" ; _nok
 			fi
