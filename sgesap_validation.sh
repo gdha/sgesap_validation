@@ -153,7 +153,7 @@ function _versionnr
 {
 	# will display the version number of this script
 	typeset rev
-	rev=$(awk '/\$Id: sgesap_validation.sh,v 1.12 2015/08/05 15:13:01 gdhaese1 Exp $4 }' $PRGDIR/$PRGNAME | head -1)
+	rev=$(awk  '/Id:/ { print $4 }' $PRGDIR/$PRGNAME | head -1)
 	[[ -n "$rev" ]] || rev="\"Under Development\""
 	echo "$PRGNAME revision $rev"
 }
@@ -2040,6 +2040,30 @@ function _check_ext_scripts
 	done
 }
 
+function _check_operation_sequence
+{
+	# check if the scripts defined by operation_sequence are present on the host
+	[[ -z "$SGCONF" ]] && SGCONF=/etc/cmcluster
+	rc=0
+	grep "^operation_sequence" $PKGnameConf | awk '{print $2}' | while read extscript
+	do
+		_debug "Operation sequence script $extscript defined in ${PKGname}.conf"
+		extscript=${extscript#*/}	# strip the '$SGCONF/'
+		for NODE in ${NODES[@]}
+		do
+			cmdo -n $NODE [[ -f "$SGCONF/$extscript" ]] >/dev/null 2>&1  # we do not want any output
+			if [[ $? -ne 0 ]]; then
+				_print 3 "==" "Operation script $SGCONF/$extscript not found on node $NODE" ; _nok
+				rc=$((rc + 1 ))
+
+			fi
+		done
+	done
+	if [[ $rc -eq 0 ]]; then
+		_print 3 "**" "All operational sequence scripts are present on the nodes" ; _ok
+	fi
+}
+
 function _compare_conf_files
 {
 	typeset -i i count
@@ -2380,6 +2404,7 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	_check_concurrent_mount_and_umount_operations
 	_check_concurrent_fsck_operations
 	_check_user_name
+	_check_operation_sequence
 
 	# checking Volume Group and file systems
 	_check_vg
