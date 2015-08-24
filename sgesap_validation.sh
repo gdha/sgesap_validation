@@ -5,7 +5,7 @@
 # This script checks the serviceguard configuration whether the
 # minimum parameters are setup correctly
 
-# $Id: sgesap_validation.sh,v 1.12 2015/08/05 15:13:01 gdhaese1 Exp $
+# $Id: sgesap_validation.sh,v 1.13 2015/08/24 12:22:40 gdhaese1 Exp $
 
 [[ -f /etc/cmcluster.conf ]] && . /etc/cmcluster.conf
 
@@ -173,6 +173,24 @@ function _banner
 	$(_print 22 "Date:" "$(date +'%Y-%m-%d @ %H:%M:%S')")
 	$(_line "#")
 	EOD
+}
+
+function _ping
+{
+	typeset i
+	case $platform in
+		Linux|Darwin)
+		i=`ping -c 2 ${1} | grep "packet loss" | cut -d, -f3 | awk '{print $1}' | cut -d% -f1 | cut -d. -f1`
+		;;
+		HP-UX)
+		i=`ping ${1} -n 2 | grep "packet loss" | cut -d, -f3 | awk '{print $1}' | cut -d% -f1 | cut -d. -f1`
+		;;
+		SunOS)
+		i=`ping ${1} >/dev/null 2>&2; echo $?`
+		;;
+	esac
+	[ -z "$i" ] && i=2      # when ping returns "host unknown error"
+	echo $i
 }
 
 function _print
@@ -1937,6 +1955,22 @@ function _check_monitor_lockd_retry
 	fi
 }
 
+function _check_nfs_xfs_ping_hosts
+{
+	grep "^nfs/hanfs_export/XFS" $PKGnameConf | cut -d\" -f2 | awk '{print $2}' | \
+	sed -e 's/root=//g' -e 's/,rw=/:/g' -e 's/,ro=/:/g' | tr ':' '\n' | sort -u | while read HOST
+	do
+		x=$(_ping $HOST)
+		if [ $x -eq 1 ]; then
+			_print 3 "==" "NFS Client $HOST is not reachable" ; _nok
+		elif [ $x -eq 2 ]; then
+			_print 3 "==" "NFS Client $HOST is unknown" ; _warning
+		else
+			_print 3 "**" "NFS Client $HOST is reachable" ; _ok
+		fi
+	done
+}
+
 function _check_nfs_xfs
 {
 	typeset -i i count
@@ -2286,6 +2320,19 @@ function _check_oracle_account
 	fi
 }
 
+function _run_cmcheckconf
+{
+	cmcheckconf -P $PKGnameConf > /tmp/cmcheckconf_output.txt
+	if [[ $? -eq 0 ]]; then
+		_print 3 "**" "cmcheckconf verification of $PKGnameConf"; _ok
+	else
+		_print 3 "==" "cmcheckconf verification of $PKGnameConf"; _nok
+		_note "Output of comcheckconf was"
+		cat /tmp/cmcheckconf_output.txt
+	fi
+	rm -f /tmp/cmcheckconf_output.txt
+}
+
 #########################################################################################################
 #
 # MAIN
@@ -2469,6 +2516,7 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 		_check_propagate_interval
 		_check_statmon_waittime
 		_check_nfs_xfs
+		_check_nfs_xfs_ping_hosts
 		_check_netgroup_file
 		_check_commented_sapmnt_in_auto_direct
 		_check_netids_in_auto_direct
@@ -2479,6 +2527,9 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	_check_debug_file
 	# comparing the config files is not really necessary anymore as the real source is saved by cmgetconf
 	#_compare_conf_files
+
+	# run a cmcheckconf command to verify interfaces and devices from a SG perspective
+	_run_cmcheckconf
 
 	echo $ERRcode > /tmp/ERRcode.sgesap
 }  2>&1 > $LOGFILE
