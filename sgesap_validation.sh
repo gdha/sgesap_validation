@@ -5,7 +5,7 @@
 # This script checks the serviceguard configuration whether the
 # minimum parameters are setup correctly
 
-# $Id: sgesap_validation.sh,v 1.14 2015/08/25 08:58:12 gdhaese1 Exp $
+# $Id: sgesap_validation.sh,v 1.15 2015/08/25 11:22:18 gdhaese1 Exp $
 
 [[ -f /etc/cmcluster.conf ]] && . /etc/cmcluster.conf
 
@@ -2079,15 +2079,15 @@ function _check_operation_sequence
 	# check if the scripts defined by operation_sequence are present on the host
 	[[ -z "$SGCONF" ]] && SGCONF=/etc/cmcluster
 	rc=0
-	grep "^operation_sequence" $PKGnameConf | awk '{print $2}' | while read extscript
+	grep "^operation_sequence" $PKGnameConf | awk '{print $2}' | while read VAR
 	do
 		_debug "Operation sequence script $extscript defined in ${PKGname}.conf"
-		extscript=${extscript#*/}	# strip the '$SGCONF/'
+		extscript=$(eval echo $VAR)   # $SGCONF/script becomes /etc/cmcluster/script
 		for NODE in ${NODES[@]}
 		do
-			cmdo -n $NODE [[ -f "$SGCONF/$extscript" ]] >/dev/null 2>&1  # we do not want any output
+			cmdo -n $NODE [[ -f "$extscript" ]] >/dev/null 2>&1  # we do not want any output
 			if [[ $? -ne 0 ]]; then
-				_print 3 "==" "Operation script $SGCONF/$extscript not found on node $NODE" ; _nok
+				_print 3 "==" "Operation script $extscript not found on node $NODE" ; _nok
 				rc=$((rc + 1 ))
 
 			fi
