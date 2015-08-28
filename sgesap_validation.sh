@@ -5,7 +5,7 @@
 # This script checks the serviceguard configuration whether the
 # minimum parameters are setup correctly
 
-# $Id: sgesap_validation.sh,v 1.15 2015/08/25 11:22:18 gdhaese1 Exp $
+# $Id: sgesap_validation.sh,v 1.16 2015/08/28 09:51:27 gdhaese1 Exp $
 
 [[ -f /etc/cmcluster.conf ]] && . /etc/cmcluster.conf
 
@@ -144,7 +144,7 @@ function _line
 	typeset -i i
 	while (( i < 95 )); do
 		(( i+=1 ))
-		echo "${1}\c"
+		_echo "${1}\c"
 	done
 	echo
 }
@@ -318,9 +318,9 @@ function TableRow
     while (( $c < ${#columns[@]} )); do
 	if [[ "$color" = "#FF0000" ]] || [[ "$color" = "#FB6104" ]] || [[ "$color" = "#000000" ]]; then
 		# foreground color white if background color is redish or orangish or black
-		echo "  <td align=left><font size=-1 color="white">\c"
+		_echo "  <td align=left><font size=-1 color="white">\c"
 	else
-        	echo "  <td align=left><font size=-1>\c"
+        	_echo "  <td align=left><font size=-1>\c"
 	fi
 	str=$( echo "${columns[c]}" | sed -e 's/^[:blank:]*//;s/[:blank:]*$//' )  # remove leading/trailing spaces
         [[ $c -eq 1 ]] && printf "<b>$str</b>" || printf "$str"
@@ -350,15 +350,6 @@ function _whoami
 	if [ "$(whoami)" != "root" ]; then
 		_error "$(whoami) - You must be root to run this script $PRGNAME"
 	fi
-}
-
-function _osrevision
-{
-	case $platform in
-		HP-UX) : ;;
-		*) _error "Script $PRGNAME does not support platform $platform" ;;
-	esac
-	_print 3 "**" "Running on $platform $os" ; _ok
 }
 
 function _is_var_empty
@@ -401,13 +392,22 @@ function _show_help_sgesap_validation
 
 function _validOS
 {
-	[[ "$os" = "11.31" ]] || _error "$PRGNAME only run on HP-UX 11.31 (and not on $os)"
-	_osrevision
+        case $platform in
+                HP-UX) [[ "$os" = "11.31" ]] || _error "$PRGNAME only run on HP-UX 11.31 (and not on $os)" ;;
+		Linux) : ;;
+                *) _error "Script $PRGNAME does not support platform $platform" ;;
+        esac
+	_print 3 "**" "Running on $platform $os" ; _ok
 }
 
 function _validSG
 {
-	release=$(/usr/sbin/swlist T1905CA.ServiceGuard | tail -1 | awk '{print $2}')
+	case $platform in
+	 HP-UX)
+	  release=$(/usr/sbin/swlist T1905CA.ServiceGuard | tail -1 | awk '{print $2}') ;;
+         Linux)
+	  release=$(rpm -qi $(rpm -qf `which $SGLBIN/cmcld`) | grep Version | awk '{print $3}') ;;
+	esac
 	rc=$(_my_grep "A.11.20" $release)
 	if [[ $rc -eq 1 ]]; then
 		_print 3 "**" "Serviceguard $release is valid" ; _ok
@@ -418,8 +418,14 @@ function _validSG
 
 function _validSGeSAP
 {
-	release=$(/usr/sbin/swlist T2803BA | tail -1 | awk '{print $2}')
-	rc=$(_my_grep "B.05.10" $release)
+	case $platform in
+	 HP-UX)
+	  release=$(/usr/sbin/swlist T2803BA | tail -1 | awk '{print $2}')
+	  rc=$(_my_grep "B.05.10" $release) ;;
+	 Linux)
+	  release=$(rpm -qa | grep serviceguard-extension-for-sap | cut -c32-41)
+	  rc=$(_my_grep "A.06.00" $release) ;;
+	esac
 	if [[ $rc -eq 1 ]]; then
 		_print 3 "**" "Serviceguard Extension for SAP $release is valid" ; _ok
 	else
@@ -899,6 +905,7 @@ function _check_nslookup_address
 
 function _check_local_lan_failover_allowed
 {
+	[[ "$platform" = "Linux" ]] && return  # n/a for Linux
 	LocalLanFailoverAllowedDefined=$(grep ^local_lan_failover_allowed $PKGnameConf | awk '{print $2}' | tr '[A-Z]' '[a-z]')
 	if [[ -z "$LocalLanFailoverAllowedDefined" ]]; then
 		_print 3 "==" "Missing local_lan_failover_allowed in ${PKGname}.conf" ; _nok
@@ -927,6 +934,11 @@ function _check_vgchange_cmd
 		_print 3 "==" "Missing vgchange_cmd in ${PKGname}.conf" ; _nok
 	elif [[ "$VgchangeCmdDefined2" = "vgchange-ae" ]]; then
 		_print 3 "**" "Found vgchange_cmd ($VgchangeCmdDefined) in ${PKGname}.conf" ; _ok
+	elif [[ "$VgchangeCmdDefined2" = "vgchange-ay" ]]; then
+		case $platform in
+                HP-UX) _print 3 "==" "Found vgchange_cmd ($VgchangeCmdDefined) - use vgchange -ae" ; _nok ;;
+                Linux) _print 3 "**" "Found vgchange_cmd ($VgchangeCmdDefined) in ${PKGname}.conf" ; _ok ;;
+		esac
 	else
 		# FIXME: what do we do with other possibilities?
 		_print 3 "**" "Found vgchange_cmd ('$VgchangeCmdDefined') in ${PKGname}.conf" ; _nok
@@ -935,6 +947,7 @@ function _check_vgchange_cmd
 
 function _check_enable_threaded_vgchange
 {
+	[[ "$platform" = "Linux" ]] && return   # N/A with SGLX
 	EnableThreadedVgchangeDefined=$(grep ^enable_threaded_vgchange $PKGnameConf | awk '{print $2}')
 	if [[ -z "$EnableThreadedVgchangeDefined" ]]; then
 		 _print 3 "==" "Missing enable_threaded_vgchange in ${PKGname}.conf" ; _nok
@@ -948,6 +961,7 @@ function _check_enable_threaded_vgchange
 
 function _check_concurrent_vgchange_operations
 {
+	[[ "$platform" = "Linux" ]] && return   # N/A with SGLX
 	typeset -i i
 	ConcurrentVgchangeOperationsDefined=$(grep ^concurrent_vgchange_operations $PKGnameConf | awk '{print $2}')
 	if [[ -z "$ConcurrentVgchangeOperationsDefined" ]]; then
@@ -1187,8 +1201,15 @@ function _check_vg_active
 		rc=$?
 		if [[ $rc -eq 0 ]]; then
 			_print 3 "**" "VG ${VgDefined[i]} is active on this node"; _ok
-			_check_vg_minornr ${VgDefined[i]}
-			_check_fs_name ${VgDefined[i]}
+			case $platform in
+			 HPUX)
+			  _check_vg_minornr ${VgDefined[i]}
+			  _check_fs_name ${VgDefined[i]}
+			  ;;
+			 Linux)
+			  _check_fs_name_linux ${VgDefined[i]}
+			  ;;
+			esac
 			_check_fs_directory "${VgDefined[i]}"
 		else
 			_print 3 "**" "VG ${VgDefined[i]} is not active on this node"; _ok
@@ -1262,6 +1283,41 @@ function _check_fs_name
 	done
 }
 
+function _check_fs_name_linux
+{
+	#  input arg1 VG /dev/volumegroup
+	typeset -i rc
+        typeset VG="$1"
+	typeset shortVG=${VG##*/}
+	count_lvols=$(lvs | grep "$shortVG" | wc -l)  # what we see physical on system
+	count_fs_name=$(grep "^fs_name" $PKGnameConf | grep "$shortVG" | wc -l) # what is defined in conf
+	if [[ $count_lvols -ne $count_fs_name ]]; then
+		grep "^fs_name" $PKGnameConf | grep "$shortVG" | cut -d- -f2 | sort > /tmp/fs_name.1
+		lvs | grep "$shortVG" | awk '{print $1}' | sort > /tmp/fs_name.2
+		# use an array to capture the differences (could be more then 1 LV)
+		set -A LVdiff $( comm -3 /tmp/fs_name.1 /tmp/fs_name.2 )
+		_print 3 "==" "The amount of fs_name lines ($count_fs_name) defined does not match $VG/*" ; _nok
+		_warning "Lvol(s) ${LVdiff[*]} not defined in $PKGnameConf"
+	fi
+	while read lvol 
+	do
+		lvdisplay "$VG/$lvol" >/dev/null 2>&1
+		rc=$?
+		if [[ $rc -ne 0 ]]; then
+			_debug "fs_name=$lvol is not active"
+			_print 3 "==" "fs_name=$VG/$lvol is not responding on lvdisplay" ; _nok
+		else
+			_debug "fs_name=$lvol is active"
+			fs_type=$(blkid $VG/$lvol | cut -d= -f4 | sed -e 's/"//g')
+			_print 3 "**" "fs_name=$VG/$lvol is responding (fs type $fs_type)" ; _ok
+		fi
+		grep "^/dev" /etc/fstab | grep "$shortVG" | grep -q "$lvol" && {
+			_print 3 "==" "Lvol $VG/$lvol is found in /etc/fstab file (should be SG only)"; _nok
+		}
+	done < /tmp/fs_name.1
+	rm -f /tmp/fs_name.1 /tmp/fs_name.2
+}
+
 function _check_fs_directory
 {
 	# input arg1 VG
@@ -1294,8 +1350,12 @@ function _check_fs_directory
 		grep -q "${dir}$" /tmp/mount-VG-dirs
 		if [[ $? -eq 0 ]]; then
 			_debug "File system $dir is mounted"
-			vxupgrade $dir | grep -q "version 5" && _debug "Schedule exec: vxupgrade -n 6 $dir"
-			vxupgrade $dir | grep -q "version 6" && _debug "Schedule exec: vxupgrade -n 7 $dir"
+			case $platform in
+			 HPUX)
+			  vxupgrade $dir | grep -q "version 5" && _debug "Schedule exec: vxupgrade -n 6 $dir"
+			  vxupgrade $dir | grep -q "version 6" && _debug "Schedule exec: vxupgrade -n 7 $dir"
+			  ;;
+			esac
 		else
 			if [[ "$PKGstatus" = "down" ]]; then
 				_debug "File system $dir is not mounted as package status is down"
