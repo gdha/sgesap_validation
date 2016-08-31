@@ -1916,6 +1916,16 @@ function _check_nfs_supported_netids
 	fi
 }
 
+function _check_nfs_ver
+{
+	NFSver=$(rpcinfo -p | grep nfs|awk '{print $2}'| sort -u | tail -1)
+	case "$NFSver" in
+		2|3|4) _print 3 "**" "Highest NFS daemon version found is $NFSver" ; _ok ;;
+		*) _print 3 "==" "NFS daemon seems not to be running" ; _warn
+		   NFSver=0 # to have at least a numeric value ;;
+	esac
+}
+
 function _check_file_lock_migration
 {
 	FileLockMigrationDefined=$(grep "^nfs/hanfs_export/FILE_LOCK_MIGRATION" $PKGnameConf | awk '{print $2}')
@@ -1929,15 +1939,27 @@ function _check_file_lock_migration
 			_check_nfsv4_flm_holding_dir
 		fi
 	else
-		_print 3 "**" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined ($FileLockMigrationDefined)" ; _ok
+		_print 3 "**" "nfs/hanfs_export/FILE_LOCK_MIGRATION $FileLockMigrationDefined" ; _ok
+		_warning "NFSv3/4 FLM Holding Directory will not be used"
 	fi
+}
+
+function _get_first_export_dir
+{
+	grep "^nfs/hanfs_export/XFS" $PKGnameConf | head -1 | read garbage val1 systems fexpdir
+	fexpdir=$(echo $fexpdir | sed -e 's/"//g')
+	# if not found then define an example export directory (to show with FLM_HOLDING_DIR)
+	[[ -z "$fexpdir" ]] && fexpdir="/export/sapmnt/${DbSystemDefined}"
 }
 
 function _check_flm_holding_dir
 {
+	if [[ $NFSver -lt 1 ]] ; then
+		return # no NFS daemon running
+	fi
 	FlmHoldingDir=$(grep "^nfs/hanfs_flm/FLM_HOLDING_DIR" $PKGnameConf | awk '{print $2}' | sed -e 's/"//g')
 	if [[ -z "$FlmHoldingDir" ]]; then
-		_print 3 "==" "Missing nfs/hanfs_flm/FLM_HOLDING_DIR in ${PKGname}.conf (use /export/sapmnt/${DbSystemDefined}/nfs_flm)" ; _warn
+		_print 3 "==" "Missing nfs/hanfs_flm/FLM_HOLDING_DIR in ${PKGname}.conf (use $fexpdir/nfs_flm)" ; _warn
 	elif [[ ! -d "$FlmHoldingDir" ]]; then
 		_print 3 "==" "nfs/hanfs_flm/FLM_HOLDING_DIR $FlmHoldingDir (directory not found!)" ; _nok
 	else
@@ -1948,10 +1970,25 @@ function _check_flm_holding_dir
 function _check_nfsv4_flm_holding_dir
 {
 	Nfsv4FlmHoldingDir=$(grep "^nfs/hanfs_flm/NFSV4_FLM_HOLDING_DIR" $PKGnameConf | awk '{print $2}' | sed -e 's/"//g')
-	if [[ -z "$Nfsv4FlmHoldingDir" ]]; then
+	if [[ $NFSver -lt 4 ]] ; then
+	    if [[ -z "$Nfsv4FlmHoldingDir" ]]; then
 		_print 3 "**" "nfs/hanfs_flm/NFSV4_FLM_HOLDING_DIR \"\"" ; _ok
-	else
+	    else
 		_print 3 "==" "nfs/hanfs_flm/NFSV4_FLM_HOLDING_DIR $Nfsv4FlmHoldingDir (should be \"\")" ; _nok
+	    fi
+	else
+	    if [[ -z "$Nfsv4FlmHoldingDir" ]]; then
+		_print 3 "==" "Missing nfs/hanfs_flm/NFSV4_FLM_HOLDING_DIR in ${PKGname}.conf (use $fexpdir/nfsv4_flm)" ; _warn
+	    elif [[ ! -d "$Nfsv4FlmHoldingDir" ]]; then
+		_print 3 "==" "nfs/hanfs_flm/NFSV4_FLM_HOLDING_DIR $Nfsv4FlmHoldingDir (directory not found!)" ; _nok
+	    else
+		_print 3 "**" "nfs/hanfs_flm/NFSV4_FLM_HOLDING_DIR $Nfsv4FlmHoldingDir" ; _ok
+	    fi
+            if [[ "$FlmHoldingDir" = "$Nfsv4FlmHoldingDir" ]] ; then
+		 _print 3 "==" "Do not use the same directory for FLM_HOLDING_DIR and NFSV4_FLM_HOLDING_DIR" ; _warn
+		_warning "Use for FLM_HOLDING_DIR=\"$fexpdir/nfs_flm\""
+		_warning "Use for NFSV4_FLM_HOLDING_DIR=\"$fexpdir/nfsv4_flm\""
+	    fi
 	fi
 }
 
@@ -2024,7 +2061,8 @@ function _check_nfs_xfs_ping_hosts
 		if [ $x -eq 1 ]; then
 			_print 3 "==" "NFS Client $HOST is not reachable" ; _nok
 		elif [ $x -eq 2 ]; then
-			_print 3 "==" "NFS Client $HOST is unknown" ; _warning
+			_print 3 "==" "NFS Client $HOST is unknown" ; _warn
+			_warning "Ignore when $HOST is a netgroup alias"
 		else
 			_print 3 "**" "NFS Client $HOST is reachable" ; _ok
 		fi
@@ -2566,18 +2604,21 @@ echo "Detailed logging about package $PKGname_tmp is saved under $LOGFILE"
 	_check_nfs_present
 	if [[ ! -f /tmp/HANFS-TOOLKIT-not-present ]]; then
 		_check_nfs_supported_netids
+		_check_nfs_ver
+		_get_first_export_dir # fill in fexpdir var of 1st found export directory by NFS
 		_check_file_lock_migration # this will check flm if required
 		_check_monitor_interval
 		_check_monitor_lockd_retry
 		_check_monitor_daemons_retry
 		_check_portmap_retry
-		#_check_flm_holding_dir
-		#_check_nfsv4_flm_holding_dir
 		_check_propagate_interval
 		_check_statmon_waittime
 		_check_nfs_xfs
 		_check_nfs_xfs_ping_hosts
 		_check_netgroup_file
+		# next 2 lines are called from _check_file_lock_migration
+		#_check_flm_holding_dir
+		#_check_nfsv4_flm_holding_dir
 		_check_commented_sapmnt_in_auto_direct
 		_check_netids_in_auto_direct
 		_check_dfstab
