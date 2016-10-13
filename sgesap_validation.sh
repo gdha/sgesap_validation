@@ -2297,7 +2297,7 @@ function _check_dfstab
 	grep "$DbSystemDefined" /etc/dfs/dfstab | grep -v "^\#" | while read Line
 	do
 		_print 3 "==" "Please move the following line into the ${PKGname}.conf (XFS line)" ; _nok
-		_note "Schedule exec: move out /etc/fstab - $Line"
+		_note "Schedule exec: move out /etc/dfstab - $Line"
 	done
 }
 
