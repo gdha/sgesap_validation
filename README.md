@@ -1,7 +1,7 @@
 sgesap_validation
 =================
 
-HP Serviceguard (SAP extensions) package validation script for Serviceguard A.11.20 and beyond. We can check a fresh package configuration file (use option `-f`) or use a configuration file (using `cmgetconf`) from the cluster itself.
+HP Serviceguard (SAP extensions) package validation script for Serviceguard A.11.20 and beyond. We can check a fresh package configuration file (use option `-f`) or use a configuration file (using `cmgetconf`) from the cluster itself. These two scripts should work on _HP-UX_ and _Linux_.
 
 The purpose is to get an idea if the package is compliant with the specifications from the SAP customer.
 
