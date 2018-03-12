@@ -5,7 +5,7 @@
 # This script checks the serviceguard configuration whether the
 # minimum parameters are setup correctly
 
-# $Id: sgesap_validation.sh,v 1.16 2015/08/28 09:51:27 gdhaese1 Exp $
+# $Id: sgesap_validation.sh,v 1.17 2016/08/31 10:04:55 gdhaese1 Exp $
 
 [[ -f /etc/cmcluster.conf ]] && . /etc/cmcluster.conf
 
@@ -2297,7 +2297,7 @@ function _check_dfstab
 	grep "$DbSystemDefined" /etc/dfs/dfstab | grep -v "^\#" | while read Line
 	do
 		_print 3 "==" "Please move the following line into the ${PKGname}.conf (XFS line)" ; _nok
-		_note "Schedule exec: move out /etc/dfstab - $Line"
+		_note "Schedule exec: move out /etc/fstab - $Line"
 	done
 }
 
